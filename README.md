@@ -70,22 +70,73 @@ Once the data is inserted into the databases, use the `stds_dash_sql.HD827.py` s
 ## File Descriptions
 
 1. **refresh.sh**
-   - Shell script to automate activating the conda environment, running the `TFAPI_dwl827.py` script, and deactivating the environment.
+   - **Description**: This shell script automates the process of activating the conda environment, executing the `TFAPI_dwl827.py` script to download and process genetic variant data, and then deactivating the environment.
+   - **Key Commands**:
+     - `conda activate base`: Activates the base conda environment.
+     - `sleep 15 && python3 TFAPI_dwl827.py`: Waits for 15 seconds before running the Python script `TFAPI_dwl827.py`.
+     - `conda deactivate`: Deactivates the conda environment after the Python script has finished executing.
+   - **Usage**:
+     ```sh
+     ./refresh.sh
+     ```
 
 2. **TFAPI_dwl827.py**
-   - Downloads genetic variant data from an API, decompresses it, and calls `Add2VarDB827.py` to insert the data into the `HD827` database.
+   - **Description**: This Python script downloads genetic variant data from a specified API, decompresses the data, and then processes it to insert into the `HD827` database using `Add2VarDB827.py`.
+   - **Key Functions**:
+     - **Data Download**: Fetches data from an API endpoint using `requests` and handles SSL warnings with `urllib3`.
+     - **Data Decompression**: Uses `subprocess` to create directories, download files, and unzip them.
+     - **Data Insertion**: Calls `Add2VarDB827.py` to insert the processed VCF files into the database.
+   - **Dependencies**: `glob`, `subprocess`, `time`, `datetime`, `csv`, `requests`, `urllib3`, `sys`
+   - **Usage**:
+     ```sh
+     python3 TFAPI_dwl827.py
+     ```
 
 3. **InitVarDB827.py**
-   - Reinitializes the `HD827` database by creating the necessary tables to store genetic variant data.
+   - **Description**: This script reinitializes the `HD827` database by creating the necessary tables for storing genetic variant data. It drops existing tables if they exist and creates new ones with the required schema.
+   - **Key Tables Created**:
+     - `ref_genome`, `AnnotationVersion`, `WorkFlowName`, `WorkFlowVer`, `BaseCallVer`, `Chromosomes`, `VarType`, `DisType`, `Transcripts`, `Genes`, `RunInfo`, `HGVS`, `VarData`, `CallData`
+   - **Dependencies**: `mysql.connector`, `os`, `re`, `numpy`, `pandas`, `vcf`, `json`, `io`, `ast`
+   - **Usage**:
+     ```sh
+     python InitVarDB827.py
+     ```
 
 4. **InitExomeDB_nbirdt.py**
-   - Reinitializes the `EXOME` database by creating the necessary tables to store exome data.
+   - **Description**: Similar to `InitVarDB827.py`, this script reinitializes the `EXOME` database. It creates the necessary tables for storing exome data and sets up the schema.
+   - **Key Tables Created**:
+     - `ref_genome`, `AnnotationVersion`, `WorkFlowName`, `WorkFlowVer`, `BaseCallVer`, `Chromosomes`, `VarType`, `DisType`, `Transcripts`, `Genes`, `RunInfo`, `HGVS`, `VarData`, `CallData`
+   - **Dependencies**: `mysql.connector`, `os`, `re`, `numpy`, `pandas`, `vcf`, `json`, `io`, `ast`
+   - **Usage**:
+     ```sh
+     python InitExomeDB_nbirdt.py
+     ```
 
 5. **Add2VarDB827.py**
-   - Fixes errors in the VCF file headers, reads the data, and inserts it into the `HD827` database.
+   - **Description**: This script processes VCF files, corrects any errors in their headers, and inserts the data into the `HD827` database. It ensures that the VCF files conform to the expected format and structure for database insertion.
+   - **Key Functions**:
+     - **Header Correction**: Fixes common errors in VCF file headers.
+     - **VCF Parsing**: Uses the `vcf` module to read VCF files and extract relevant data.
+     - **Database Insertion**: Inserts data into various tables (`RunInfo`, `VarData`, `CallData`, etc.) in the `HD827` database.
+   - **Dependencies**: `mysql.connector`, `os`, `re`, `numpy`, `pandas`, `vcf`, `sqlite3`, `io`, `argparse`
+   - **Usage**:
+     ```sh
+     python Add2VarDB827.py -i input.vcf
+     ```
 
 6. **stds_dash_sql.HD827.py**
-   - Creates an interactive web interface using Dash to visualize and analyze the data from the `HD827` database.
+   - **Description**: This script sets up an interactive web interface using Dash to visualize and analyze the genetic variant data stored in the `HD827` database. It includes features for querying the database, displaying data tables, and generating plots.
+   - **Key Features**:
+     - **Data Retrieval**: Connects to the `HD827` MySQL database and retrieves relevant data for visualization.
+     - **Interactive Dashboard**: Uses Dash components to create interactive tables and graphs.
+     - **Conditional Formatting**: Applies conditional formatting to highlight significant data points (e.g., outliers).
+   - **Dependencies**: `dash`, `dash_auth`, `dash_table`, `dash_core_components`, `dash_html_components`, `pandas`, `plotly`, `statistics`, `mysql.connector`, `time`, `datetime`, `csv`
+   - **Usage**:
+     ```sh
+     python stds_dash_sql.HD827.py
+     ```
+   - **Access**:
+     - Open your web browser and navigate to `http://localhost:8050` to access the Dash interface.
 
 ## Database Structure
 
