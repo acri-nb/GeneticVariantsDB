@@ -1,7 +1,5 @@
 # README.md
 
-## Introduction
-
 This project contains a series of Python scripts and a shell script to download, process, insert, and visualize genetic variant data. These scripts are designed to work together to maintain and analyze the `HD827` and `EXOME` databases.
 
 ## Prerequisites
