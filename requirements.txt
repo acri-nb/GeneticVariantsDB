@@ -1,0 +1,14 @@
+glob2
+subprocess
+time
+datetime
+csv
+requests
+urllib3
+mysql-connector-python
+pandas
+vcf
+json
+dash
+dash-auth
+plotly
