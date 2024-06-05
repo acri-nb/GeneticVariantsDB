@@ -1,15 +1,42 @@
-This project contains a series of Python scripts and a shell script to download, process, insert, and visualize genetic variant data. These scripts are designed to work together to maintain and analyze the `HD827` and `EXOME` databases.
+This project contains a series of Python scripts and a shell script to manage and analyze genetic variant data within the `HD827` and `EXOME` databases. The workflow automates the process of downloading new data from a ThermoFisher server, processing it, and inserting it into the databases.  A Dash application is then used to visualize and analyze the data.
 
-## Prerequisites
+# Workflow Overview
 
-- Python 3.6 or later
-- Anaconda
-- MySQL
-- Python Modules: `glob`, `subprocess`, `time`, `datetime`, `csv`, `requests`, `urllib3`, `sys`, `mysql.connector`, `os`, `re`, `numpy`, `pandas`, `vcf`, `json`, `io`, `ast`, `dash`, `dash_auth`, `plotly`, `statistics`
+The system relies on three servers:
 
-## Installation
+1. **Source Server:**  Houses the raw FASTQ sample files.
+2. **ThermoFisher Server:**  Processes the raw data and provides access to the processed data through an API.
+3. **Main Server:** Hosts the `HD827` and `EXOME` databases, runs the data retrieval and processing scripts, and hosts the Dash visualization application. 
 
-1. **Clone the repository:**
+**Here's the step-by-step breakdown:**
+
+1. **New Data Detection:** A cron job on the Source Server regularly checks for new FASTQ files. When a new file with the `HDXXX` identifier is detected, it triggers the workflow.
+2. **Transfer to Main Server:** The new FASTQ file is securely copied (scp) from the Source Server to the Main Server.
+3. **Data Request to ThermoFisher:** The Main Server sends a request to the ThermoFisher Server's API to process the transferred FASTQ file. This requires a valid ThermoFisher account and authentication token.
+4. **Data Processing and Download:** The ThermoFisher Server processes the data and makes the results available for download as a zip file containing VCF (Variant Call Format) data. 
+5. **Data Insertion:**
+   - The Main Server downloads the zip file from the ThermoFisher server.
+   - The script `TFAPI_dwl827.py` unzips the file.
+   - The script `Add2VarDB827.py` reads the VCF data, performs necessary validation and corrections, and then inserts the data into the appropriate tables in the `HD827` database.
+6. **Data Visualization:** The `stds_dash_sql.HD827.py` script, running on the Main Server, connects to the `HD827` database, retrieves data, and displays it in an interactive dashboard using the Dash framework. This dashboard is accessible through a web browser.
+
+# Prerequisites
+
+- **Source Server:**
+   -  `cron` for scheduling tasks.
+   -  `scp` for secure file transfer. 
+- **ThermoFisher Server:**
+   -  Active ThermoFisher account with API access.
+   -  Authentication token for API requests.
+- **Main Server:**
+   - Python 3.6 or later
+   - Anaconda
+   - MySQL
+   - Python Modules: `glob`, `subprocess`, `time`, `datetime`, `csv`, `requests`, `urllib3`, `sys`, `mysql.connector`, `os`, `re`, `numpy`, `pandas`, `vcf`, `json`, `io`, `ast`, `dash`, `dash_auth`, `plotly`, `statistics`
+
+# Installation
+
+1. **Clone the repository on the Main Server:**
    ```sh
    git clone https://github.com/acri-nb/GeneticVariantsDB.git
    cd GeneticVariantsDB
@@ -24,122 +51,49 @@ This project contains a series of Python scripts and a shell script to download,
 
 3. **Set up MySQL:**
    - Create the `HD827` and `EXOME` databases.
-   - Update the credentials in `InitVarDB827.py` and `InitExomeDB_nbirdt.py`.
+   - Update the database credentials in `InitVarDB827.py` and `InitExomeDB_nbirdt.py`.
 
-## Usage
+# Usage
 
-### Step 1: Initialize the Databases
+## Step 1: Initialize the Databases (on Main Server)
 
-Before starting to download and insert data, it is necessary to initialize the databases.
+```sh
+python InitVarDB827.py
+python InitExomeDB_nbirdt.py
+```
 
-1. **Initialize the HD827 database:**
-   ```sh
-   python InitVarDB827.py
-   ```
+## Step 2:  Configure Cron Job (on Source Server)
 
-2. **Initialize the EXOME database:**
-   ```sh
-   python InitExomeDB_nbirdt.py
-   ```
+Set up a cron job to regularly execute a script that:
+   - Checks for new FASTQ files with the `HDXXX` identifier.
+   - Securely copies (scp) new files to the designated directory on the Main Server.
+   - (Optional) Triggers the data processing script on the Main Server.
 
-### Step 2: Download and Process Data
+## Step 3: Run Data Processing (on Main Server)
 
-The `refresh.sh` script will automate the process of downloading and processing data.
+   - **Manual Execution:**
+     ```sh
+     python TFAPI_dwl827.py  
+     ```
+   - **Automated (Triggered by Cron):**  Modify `TFAPI_dwl827.py` to automatically detect and process new files placed in the designated directory by the Source Server's cron job.
 
-1. **Run the download and process script:**
-   ```sh
-   ./refresh.sh
-   ```
+## Step 4: Visualize the Data (on Main Server)
 
-### Step 3: Visualize the Data
-
-Once the data is inserted into the databases, use the `stds_dash_sql.HD827.py` script to launch an interactive web interface to visualize the data.
-
-1. **Run the Dash application:**
    ```sh
    python stds_dash_sql.HD827.py
    ```
+   - Access the dashboard in your web browser: `http://localhost:8050` (adjust port if necessary).
 
-2. **Access the web interface:**
-   - Open your browser and go to `http://localhost:8050`.
+# File Descriptions
 
-## File Descriptions
+*Refer to the initial README.md content for detailed file descriptions.*
 
-1. **refresh.sh**
-   - **Description**: This shell script automates the process of activating the conda environment, executing the `TFAPI_dwl827.py` script to download and process genetic variant data, and then deactivating the environment.
-   - **Key Commands**:
-     - `conda activate base`: Activates the base conda environment.
-     - `sleep 15 && python3 TFAPI_dwl827.py`: Waits for 15 seconds before running the Python script `TFAPI_dwl827.py`.
-     - `conda deactivate`: Deactivates the conda environment after the Python script has finished executing.
-   - **Usage**:
-     ```sh
-     ./refresh.sh
-     ```
+# Database Structure
 
-2. **TFAPI_dwl827.py**
-   - **Description**: This Python script downloads genetic variant data from a specified API, decompresses the data, and then processes it to insert into the `HD827` database using `Add2VarDB827.py`.
-   - **Key Functions**:
-     - **Data Download**: Fetches data from an API endpoint using `requests` and handles SSL warnings with `urllib3`.
-     - **Data Decompression**: Uses `subprocess` to create directories, download files, and unzip them.
-     - **Data Insertion**: Calls `Add2VarDB827.py` to insert the processed VCF files into the database.
-   - **Dependencies**: `glob`, `subprocess`, `time`, `datetime`, `csv`, `requests`, `urllib3`, `sys`
-   - **Usage**:
-     ```sh
-     python3 TFAPI_dwl827.py
-     ```
+*Refer to the initial README.md content for database table descriptions.*
 
-3. **InitVarDB827.py**
-   - **Description**: This script reinitializes the `HD827` database by creating the necessary tables for storing genetic variant data. It drops existing tables if they exist and creates new ones with the required schema.
-   - **Key Tables Created**:
-     - `ref_genome`, `AnnotationVersion`, `WorkFlowName`, `WorkFlowVer`, `BaseCallVer`, `Chromosomes`, `VarType`, `DisType`, `Transcripts`, `Genes`, `RunInfo`, `HGVS`, `VarData`, `CallData`
-   - **Dependencies**: `mysql.connector`, `os`, `re`, `numpy`, `pandas`, `vcf`, `json`, `io`, `ast`
-   - **Usage**:
-     ```sh
-     python InitVarDB827.py
-     ```
-
-4. **InitExomeDB_nbirdt.py**
-   - **Description**: Similar to `InitVarDB827.py`, this script reinitializes the `EXOME` database. It creates the necessary tables for storing exome data and sets up the schema.
-   - **Key Tables Created**:
-     - `ref_genome`, `AnnotationVersion`, `WorkFlowName`, `WorkFlowVer`, `BaseCallVer`, `Chromosomes`, `VarType`, `DisType`, `Transcripts`, `Genes`, `RunInfo`, `HGVS`, `VarData`, `CallData`
-   - **Dependencies**: `mysql.connector`, `os`, `re`, `numpy`, `pandas`, `vcf`, `json`, `io`, `ast`
-   - **Usage**:
-     ```sh
-     python InitExomeDB_nbirdt.py
-     ```
-
-5. **Add2VarDB827.py**
-   - **Description**: This script processes VCF files, corrects any errors in their headers, and inserts the data into the `HD827` database. It ensures that the VCF files conform to the expected format and structure for database insertion.
-   - **Key Functions**:
-     - **Header Correction**: Fixes common errors in VCF file headers.
-     - **VCF Parsing**: Uses the `vcf` module to read VCF files and extract relevant data.
-     - **Database Insertion**: Inserts data into various tables (`RunInfo`, `VarData`, `CallData`, etc.) in the `HD827` database.
-   - **Dependencies**: `mysql.connector`, `os`, `re`, `numpy`, `pandas`, `vcf`, `sqlite3`, `io`, `argparse`
-   - **Usage**:
-     ```sh
-     python Add2VarDB827.py -i input.vcf
-     ```
-
-6. **stds_dash_sql.HD827.py**
-   - **Description**: This script sets up an interactive web interface using Dash to visualize and analyze the genetic variant data stored in the `HD827` database. It includes features for querying the database, displaying data tables, and generating plots.
-   - **Key Features**:
-     - **Data Retrieval**: Connects to the `HD827` MySQL database and retrieves relevant data for visualization.
-     - **Interactive Dashboard**: Uses Dash components to create interactive tables and graphs.
-     - **Conditional Formatting**: Applies conditional formatting to highlight significant data points (e.g., outliers).
-   - **Dependencies**: `dash`, `dash_auth`, `dash_table`, `dash_core_components`, `dash_html_components`, `pandas`, `plotly`, `statistics`, `mysql.connector`, `time`, `datetime`, `csv`
-   - **Usage**:
-     ```sh
-     python stds_dash_sql.HD827.py
-     ```
-   - **Access**:
-     - Open your web browser and navigate to `http://localhost:8050` to access the Dash interface.
-
-## Database Structure
-
-The databases contain several tables to organize genetic variant data, including `CallData`, `VarData`, `RunInfo`, and other metadata tables.
-
-## Authors
+# Authors
 
 - **Eric Allain** - Script Author
 - **Hadrien Gayap** - Editor
-- **ACRI (Atlantic Cancer Research Institute)** - Organization
+- **ACRI (Atlantic Cancer Research Institute)** - Organization 
