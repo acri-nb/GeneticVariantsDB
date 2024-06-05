@@ -9,6 +9,7 @@ The system relies on three servers:
 3. **Main Server:** Hosts the `HD827` and `EXOME` databases, runs the data retrieval and processing scripts, and hosts the Dash visualization application. 
 
 **Here's the step-by-step breakdown:**
+![Pipeline](Pipeline_VarDB.jpg)
 
 1. **New Data Detection:** A cron job on the Source Server regularly checks for new FASTQ files. When a new file with the `HDXXX` identifier is detected, it triggers the workflow.
 2. **Transfer to Main Server:** The new FASTQ file is securely copied (scp) from the Source Server to the Main Server.
