@@ -1,0 +1,80 @@
+services:
+  #dashboard:
+  #  build:
+  #    context: dashboard
+  #  restart: always
+  #  secrets:
+  #    - db-password
+  #  depends_on:
+  #    db:
+  #      condition: service_healthy
+  #  environment:
+  #    - MYSQL_DATABASE=vardb
+  #    - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/db-password
+  #  ports:
+  #    - 8090:8090
+  #  volumes:
+  #    - db-data:/var/lib/mysql
+  #    - type: bind
+  #      source: /home/acri/dash-files
+  #      target: /dash-files
+  
+  cronjobs:
+    build:
+      context: ./cronjobs
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    secrets:
+      - db-password
+    volumes:
+      - db-data:/var/lib/mysql
+      - type: bind
+        source: /home/acri/dash-files
+        target: /dash-files
+    environment:
+      - MYSQL_DATABASE=vardb
+      - MYSQL_USER=usr
+      - MYSQL_PASSWORD=usrpass
+      - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/db-password
+      - MYSQL_ROOT_HOST=%
+
+  db:
+    image: mysql/mysql-server
+    command: '--default-authentication-plugin=mysql_native_password'
+    restart: always
+    healthcheck:
+      test: ['CMD-SHELL', 'mysqladmin ping -h 127.0.0.1 --password="$$(cat /run/secrets/db-password)" --silent']
+      interval: 3s
+      retries: 5
+      start_period: 30s
+    secrets:
+      - db-password
+    volumes:
+      - db-data:/var/lib/mysql
+      - ./schema:/docker-entrypoint-initdb.d
+    environment:
+      - MYSQL_DATABASE=vardb
+      - MYSQL_USER=usr
+      - MYSQL_PASSWORD=usrpass
+      - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/db-password
+      - MYSQL_ROOT_HOST=%
+    expose:
+      - 3309
+    ports:
+      - 3309:3309
+
+
+volumes:
+  db-data:
+  #comments:
+  #exclusions:
+
+#networks:
+#  host:
+#    name: host
+
+secrets:
+  db-password:
+    file: db/password.txt

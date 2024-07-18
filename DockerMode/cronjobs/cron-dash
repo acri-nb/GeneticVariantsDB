@@ -1,0 +1,3 @@
+
+*/30 * * * * root bash -i refresh.sh 2>&1
+
