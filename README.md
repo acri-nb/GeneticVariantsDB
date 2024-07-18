@@ -55,6 +55,9 @@ The system relies on three servers:
    - Update the database credentials in `InitVarDB827.py` and `InitExomeDB_nbirdt.py`.
 
 # Usage
+To use our propose solution, you have 2 ways to start : 
+- Directly by using your own envirronement
+- Using Docker Compose (Highly recommended)
 
 ## Normal
 
@@ -91,9 +94,15 @@ Set up a cron job to regularly execute a script that:
   ```sh
    cd DockerMode
    ```
-### Step 1 : Install Docker and Docker Compose (If necessary)
-### Step 2 : Build the Docker images with the command: ``` docker compose build --no-cache ```.
-### Step 3 : XXX
+### Step 1 : Install Docker and Docker Compose (If necessary [here](https://docs.docker.com/engine/install/))
+### Step 2 : Build the Docker images with the command: 
+```sh
+docker compose build --no-cache
+```
+### Step 3 : Start the Docker containers with: 
+```sh 
+docker compose up --force-recreate
+```
 
 # File Descriptions
 
