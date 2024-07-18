@@ -56,21 +56,23 @@ The system relies on three servers:
 
 # Usage
 
-## Step 1: Initialize the Databases (on Main Server)
+## Normal
+
+### Step 1: Initialize the Databases (on Main Server)
 
 ```sh
 python InitVarDB827.py
 python InitExomeDB_nbirdt.py
 ```
 
-## Step 2:  Configure Cron Job (on Source Server)
+### Step 2:  Configure Cron Job (on Source Server)
 
 Set up a cron job to regularly execute a script that:
    - Checks for new FASTQ files with the `HDXXX` identifier.
    - Securely copies (scp) new files to the designated directory on the Main Server.
    - (Optional) Triggers the data processing script on the Main Server.
 
-## Step 3: Run Data Processing (on Main Server)
+### Step 3: Run Data Processing (on Main Server)
 
    - **Manual Execution:**
      ```sh
@@ -78,12 +80,20 @@ Set up a cron job to regularly execute a script that:
      ```
    - **Automated (Triggered by Cron):**  Modify `TFAPI_dwl827.py` to automatically detect and process new files placed in the designated directory by the Source Server's cron job.
 
-## Step 4: Visualize the Data (on Main Server)
+### Step 4: Visualize the Data (on Main Server)
 
    ```sh
    python stds_dash_sql.HD827.py
    ```
    - Access the dashboard in your web browser: `http://localhost:8050` (adjust port if necessary).
+
+## With Docker Compose
+  ```sh
+   cd DockerMode
+   ```
+### Step 1 : Install Docker and Docker Compose (If necessary)
+### Step 2 : Build the Docker images with the command: ``` docker compose build --no-cache ```.
+### Step 3 : XXX
 
 # File Descriptions
 
