@@ -154,14 +154,6 @@ This section of the README provides a step-by-step guide for users who want to d
 - **ThermoFisher API:** Used to access run information and download VCF files.
 
 
-# File Descriptions
-
-*Refer to the initial README.md content for detailed file descriptions.*
-
-# Database Structure
-
-*Refer to the initial README.md content for database table descriptions.*
-
 # Authors
 
 - **Eric Allain** - Script Author
