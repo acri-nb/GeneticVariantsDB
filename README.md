@@ -98,7 +98,7 @@ This section of the README provides a step-by-step guide for users who want to d
    cd DockerMode
   ```
 
-1. **Configuration:**
+### 1. **Configuration:**
 
    -  **Edit `cronjobs/TFAPI_dwl.py`:**
      -  Set `ip_addr` to the IP address of your sequencing server.
@@ -120,17 +120,17 @@ This section of the README provides a step-by-step guide for users who want to d
          */15 * * * * /home/ionadmin/get_prefixes.sh 
          ```
 
-2. **Build and run:**
+### 2. **Build and run:**
    - Build and start the Docker containers:
       ```sh
       docker compose up --detach
       ```
 
-3. **Access the app:**
+### 3. **Access the app:**
 
    - The app will be available at `http://[your-server-ip]:8090` in your web browser.
 
-4. **Stopping the app:**
+### 4. **Stopping the app:**
 
    - Stop the Docker containers:
       ```sh
