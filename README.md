@@ -90,19 +90,69 @@ Set up a cron job to regularly execute a script that:
    ```
    - Access the dashboard in your web browser: `http://localhost:8050` (adjust port if necessary).
 
+
 ## With Docker Compose
+This section of the README provides a step-by-step guide for users who want to deploy the system using Docker Compose. It covers the necessary configuration, how to build and run the containers, and how to access the Dash application.
+
   ```sh
    cd DockerMode
-   ```
-### Step 1 : Install Docker and Docker Compose (If necessary [here](https://docs.docker.com/engine/install/))
-### Step 2 : Build the Docker images with the command: 
-```sh
-docker compose build --no-cache
-```
-### Step 3 : Start the Docker containers with: 
-```sh 
-docker compose up --force-recreate
-```
+  ```
+
+1. **Configuration:**
+
+   -  **Edit `cronjobs/TFAPI_dwl.py`:**
+     -  Set `ip_addr` to the IP address of your sequencing server.
+     -  Set `auth_token` to your ThermoFisher API authorization token. 
+   -  **Edit `docker-compose.yml`:**
+     - Update the `source` path in the bind mount to the actual directory path on your host machine where you have placed `sample.prefixes`, `comments.txt`, and `exclusions.tsv`.
+   - **Create Empty Files:**
+     - In the host directory you specified for the bind mount (e.g., `/home/ionadmin/dash-files`), run the following:
+        ```sh
+        touch exclusions.tsv && touch comments.txt
+        ```
+   - **Edit `get_prefixes.sh`:**
+     -  Update the `find` command's path to match the location where your Ion Reporter run directories are stored.
+     -  Adjust the `grep` pattern if your sample prefixes don't start with "HD827".
+   - **Edit crontab:**
+      - Open your crontab (using `sudo crontab -e` if needed).
+      -  Add the following line, making sure the path to `get_prefixes.sh` is correct:
+         ```
+         */15 * * * * /home/ionadmin/get_prefixes.sh 
+         ```
+
+2. **Build and run:**
+   - Build and start the Docker containers:
+      ```sh
+      docker compose up --detach
+      ```
+
+3. **Access the app:**
+
+   - The app will be available at `http://[your-server-ip]:8090` in your web browser.
+
+4. **Stopping the app:**
+
+   - Stop the Docker containers:
+      ```sh
+      docker compose down
+      ```
+   - **Warning:**  Using `docker compose down -v` will remove the MySQL data volume, deleting all stored data.
+
+
+## Notes:
+
+- The provided cron job runs every 15 minutes. Adjust the schedule as needed. 
+- You may need to modify the regex patterns in `get_prefixes.sh` to match your specific file naming conventions.
+- It is recommended to capture at least 5 runs initially to ensure the graphics in the app are interpretable and to avoid potential errors. 
+-  The Docker Compose setup assumes the Dash app and the sequencing data are on the same server. If this is not the case, further adjustments will be necessary. 
+ 
+ **Explanation:**
+
+- **Docker Compose:** Docker Compose simplifies the management of multi-container Docker applications.
+- **Cron Jobs:** Automated tasks that run on a schedule, in this case, fetching new run prefixes.
+- **Bind Mounts:** Connect directories on your host machine to directories inside Docker containers, providing persistent storage.
+- **ThermoFisher API:** Used to access run information and download VCF files.
+
 
 # File Descriptions
 
