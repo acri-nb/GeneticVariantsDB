@@ -92,7 +92,7 @@ Set up a cron job to regularly execute a script that:
 
 
 ## With Docker Compose
-This section of the README provides a step-by-step guide for users who want to deploy the system using Docker Compose. It covers the necessary configuration, how to build and run the containers, and how to access the Dash application.
+This section provides a step-by-step guide for users who want to deploy the system using Docker Compose. It covers the necessary configuration, how to build and run the containers, and how to access the Dash application.
 
   ```sh
    cd DockerMode
