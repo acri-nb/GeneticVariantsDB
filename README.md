@@ -2,24 +2,23 @@ This project contains a series of Python scripts and a shell script to manage an
 
 # Workflow Overview
 
-The system relies on three servers:
+This system provides quality control data management and analysis for targeted exome sequencing, using standards like HD827. It involves 2 main components:
 
-1. **Source Server:**  Houses the raw FASTQ sample files.
-2. **ThermoFisher Server:**  Processes the raw data and provides access to the processed data through an API.
-3. **Main Server:** Hosts the `HD827` and `EXOME` databases, runs the data retrieval and processing scripts, and hosts the Dash visualization application. 
+1. **ThermoFisher Server:** Processes the raw data and provides access to analyzed data through an API. (Ion Reporter software in this example).
+2. **Main Server:** Hosts the MySQL databases (e.g., `HD827`, `EXOME`), runs data retrieval and processing scripts, and hosts the Dash visualization application.
 
-**Here's the step-by-step breakdown:**
+**Workflow Breakdown**
 ![Pipeline](Pipeline_VarDB.jpg)
 
-1. **New Data Detection:** A cron job on the Source Server regularly checks for new FASTQ files. When a new file with the `HDXXX` identifier is detected, it triggers the workflow.
-2. **Transfer to Main Server:** The new FASTQ file is securely copied (scp) from the Source Server to the Main Server.
-3. **Data Request to ThermoFisher:** The Main Server sends a request to the ThermoFisher Server's API to process the transferred FASTQ file. This requires a valid ThermoFisher account and authentication token.
-4. **Data Processing and Download:** The ThermoFisher Server processes the data and makes the results available for download as a zip file containing VCF (Variant Call Format) data. 
-5. **Data Insertion:**
-   - The Main Server downloads the zip file from the ThermoFisher server.
-   - The script `TFAPI_dwl827.py` unzips the file.
-   - The script `Add2VarDB827.py` reads the VCF data, performs necessary validation and corrections, and then inserts the data into the appropriate tables in the `HD827` database.
-6. **Data Visualization:** The `stds_dash_sql.HD827.py` script, running on the Main Server, connects to the `HD827` database, retrieves data, and displays it in an interactive dashboard using the Dash framework. This dashboard is accessible through a web browser.
+1. **New Data Generation:** New FASTQ files are generated on the **Source Server** with standardized identifier prefixes.
+2. **Run Identification and API Request:** A cron job on the **Main Server**, managed by a script like `get_prefixes.sh`, identifies new runs by checking for these prefixes. It then triggers an API request to the **ThermoFisher Server**.
+3. **Data Processing:** The **ThermoFisher Server** processes the raw FASTQ data using the specified workflow (e.g., IonReporter software).
+4. **Data Request and Download:** End-users analyze the processed data on the **ThermoFisher Server** (e.g., using IonReporter). A zip file containing the analyzed data in VCF format is then requested through the API.
+5. **Data Validation and Insertion:**
+   - The **Main Server** downloads the zip file from the **ThermoFisher Server**.
+   - A Python script (e.g., `TFAPI_dwl827.py`) unzips the file.
+   - Another Python script (e.g., `Add2VarDB827.py`) validates and corrects the VCF data and inserts it into the appropriate MySQL database (e.g., `HD827`).
+6. **Data Visualization:** A final Python script (e.g., `stds_dash_sql.HD827.py`) running on the **Main Server** retrieves the data from the database and displays it in an interactive dashboard using the Dash framework. This dashboard is accessible via a web browser.
 
 # Prerequisites
 
