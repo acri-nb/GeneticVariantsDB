@@ -12,8 +12,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 csv_reader = reader(open("dash-files/sample.prefixes","r"), quotechar="\"")
-ip_addr = "10.111.243.18"
-auth_token = "Authorization:ZTM2MjAzMmE4NWVjY2EwZWVlMDY3NDdhODljMDMyMzQxNDU3YzY0NzhlNzA4Y2YxYTAwMmNmOTU3MDljMDk4Mg"
+ip_addr = "0.0.0.0" # line needs to be changed to your IP
+auth_token = "Authorization:" # Your auth token for ThermoFishher needs to be inserted
 
 list_files =[]
 for row in csv_reader:
@@ -65,10 +65,4 @@ for item in list_files:
     subprocess.call(["python3", "Add2VarDB.py", "-i", vcf])
     subprocess.call(["rm", vcf])
 
-#open("dash-files/prefixes","w").close()
-#insert call for zipfile here
-#curl -v -k -H "Content-Type:application/x-www-form-urlencoded" -H "Authorization:aDROZ1EzS010dkgrdVB4T1Mrc3VUUThubWpVYXpsN1FlNCtYZVBHOVB1WDZ4UEFEQkZPRnFFVXlyK3k5aWxLa2VBcGNXeTVBNmlab0k3VWVpZFhpNkE9PQ" 
-#GET "https://10.111.243.2/api/v1/analysis?format=json&name=HD200_SSEQ_CONTROLE_v177"
 
-#curl -v -k -H "Content-Type:application/x-www-form-urlencoded" -H "Authorization:aDROZ1EzS010dkgrdVB4T1Mrc3VUUThubWpVYXpsN1FlNCtYZVBHOVB1WDZ4UEFEQkZPRnFFVXlyK3k5aWxLa2VBcGNXeTVBNmlab0k3VWVpZFhpNkE9PQ" GET 
-#"https://10.111.243.2:443/api/v1/analysis?format=json&start_date=2022-02-08&end_date=2022-02-12&name=HD200_SSEQ_CONTROLE_v166"
