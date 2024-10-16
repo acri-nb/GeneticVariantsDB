@@ -8,7 +8,7 @@ This system provides quality control data management and analysis for targeted e
 2. **Main Server:** Hosts the MySQL databases (e.g., `HD827`, `EXOME`), runs data retrieval and processing scripts, and hosts the Dash visualization application.
 
 **Workflow Breakdown**
-
+![Pipeline](Pipeline_VarDB.jpg)
 
 1. **New Data Generation:** New FASTQ files are generated on the **Source Server** with standardized identifier prefixes.
 2. **Run Identification and API Request:** A cron job on the **Main Server**, managed by a script like `get_prefixes.sh`, identifies new runs by checking for these prefixes. It then triggers an API request to the **ThermoFisher Server**.
