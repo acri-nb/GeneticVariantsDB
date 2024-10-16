@@ -1,4 +1,4 @@
-This project contains a series of Python scripts and a shell script to manage and analyze genetic variant data within the `HD827` and `EXOME` databases. The workflow automates the process of downloading new data from a ThermoFisher server, processing it, and inserting it into the databases.  A Dash application is then used to visualize and analyze the data.
+This project contains a series of Python scripts and a shell script to manage and analyze genetic variant data within the `HD827` and `EXOME` databases. The workflow automates the process of downloading new data from a ThermoFisher server, processing it, and inserting it into the databases. A Dash application is then used to visualize and analyze the data.
 
 # Workflow Overview
 
@@ -54,9 +54,11 @@ This system provides quality control data management and analysis for targeted e
    - Update the database credentials in `InitVarDB827.py` and `InitExomeDB_nbirdt.py`.
 
 # Usage
-To use our propose solution, you have 2 ways to start : 
-- Directly by using your own envirronement
+To use our proposed solution, you have 2 ways to start:
+- Directly by using your own environment
 - Using Docker Compose (Highly recommended)
+
+We will assume that the app runs on the same server where data is generated.
 
 ## Normal
 
@@ -67,28 +69,46 @@ python InitVarDB827.py
 python InitExomeDB_nbirdt.py
 ```
 
-### Step 2:  Configure Cron Job (on Source Server)
+### Step 2: Configure Cron Job (on Source Server)
 
 Set up a cron job to regularly execute a script that:
    - Checks for new FASTQ files with the `HDXXX` identifier.
    - Securely copies (scp) new files to the designated directory on the Main Server.
    - (Optional) Triggers the data processing script on the Main Server.
 
+In the `cronjobs/TFAPI_dwl.py` script, two parameters need to be manually set: the machine IP address (replace `0.0.0.0`) and the authorization token for communicating with the ThermoFisher API with the user account (replace the placeholder after `Authorization:`).
+
+```python
+csv_reader = reader(
+    open("/var/dash-files/sample.prefixes", "r"),
+    quotechar="\""
+)
+ip_addr = "0.0.0.0"
+auth_token = "Authorization:"
+```
+
+Edit your crontab on the sequencer's server to include:
+
+```sh
+*/15 * * * * /home/ionadmin/get_prefixes.sh
+```
+
 ### Step 3: Run Data Processing (on Main Server)
 
    - **Manual Execution:**
      ```sh
-     python TFAPI_dwl827.py  
+     docker exec -it acri-cronjobs-1 conda run -n docker-base --no-capture-output python3 TFAPI_dwl.py
      ```
-   - **Automated (Triggered by Cron):**  Modify `TFAPI_dwl827.py` to automatically detect and process new files placed in the designated directory by the Source Server's cron job.
+   - **Automated (Triggered by Cron):** Modify `TFAPI_dwl827.py` to automatically detect and process new files placed in the designated directory by the Source Server's cron job.
+
+This command should also be inserted in the `/home/ionadmin/get_prefixes.sh` file.
 
 ### Step 4: Visualize the Data (on Main Server)
 
    ```sh
    python stds_dash_sql.HD827.py
    ```
-   - Access the dashboard in your web browser: `http://localhost:8050` (adjust port if necessary).
-
+   - Access the dashboard in your web browser: `http://[your-server-ip]:8090` (adjust port if necessary).
 
 ## With Docker Compose
 This section provides a step-by-step guide for users who want to deploy the system using Docker Compose. It covers the necessary configuration, how to build and run the containers, and how to access the Dash application.
@@ -143,7 +163,7 @@ This section provides a step-by-step guide for users who want to deploy the syst
 - The provided cron job runs every 15 minutes. Adjust the schedule as needed. 
 - You may need to modify the regex patterns in `get_prefixes.sh` to match your specific file naming conventions.
 - It is recommended to capture at least 5 runs initially to ensure the graphics in the app are interpretable and to avoid potential errors. 
--  The Docker Compose setup assumes the Dash app and the sequencing data are on the same server. If this is not the case, further adjustments will be necessary. 
+- The Docker Compose setup assumes the Dash app and the sequencing data are on the same server. If this is not the case, further adjustments will be necessary. 
  
  **Explanation:**
 
@@ -157,4 +177,4 @@ This section provides a step-by-step guide for users who want to deploy the syst
 
 - **Eric Allain** - Script Author
 - **Hadrien Gayap** - Editor
-- **ACRI (Atlantic Cancer Research Institute)** - Organization 
+- **ACRI (Atlantic Cancer Research Institute)** - Organization
