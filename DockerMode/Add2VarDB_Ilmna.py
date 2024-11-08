@@ -28,6 +28,9 @@ import argparse
 #python3 ../DB_init_v2.py     !!! ONLY THE 1st TIME
 #for i in $(ls *.vcf); do python3 Add_to_DB_v2.py -i $i; done
 
+#for testing
+#open the sample VCF
+#vcf_file = "C:\\Users\\Eric\\Documents\\Vitalite\\DB_QC\\HD200_SSEQ_CONTROLE_v5\\HD200_SSEQ_CONTROLE_v5_Non-Filtered.vcf"
 
 #Function to fix several bugs in the VCF header.
 def change_header(old_vcf):
@@ -65,6 +68,11 @@ def change_header(old_vcf):
         meta[id] = meta[id].replace('Float','String')
     except:
         pass
+    try:
+        drgn = [meta.index(l) for l in meta if l.startswith('##DRAGENCommandLine=<ID=dragen')]
+        meta[drgn[0]] = meta[drgn[0]].replace('##DRAGENCommandLine', '##DRAGENCommandLine_1')
+    except:
+        pass
     final_list = meta + data_list # concatenate the new header to the data
     return(final_list)
 
@@ -73,6 +81,9 @@ def write_fix_file(title, new_file):
     with open(title, 'w') as fl:
         fl.write('\n'.join(new_file))
 
+#write_fix_file("new_file.vcf", change_header(vcf_file))
+#ex_vcf = vcf.Reader(open("new_file.vcf",'r'))
+#print('\n'.join(change_header(vcf_file)))
 #function for creating a file-like object with correct header from the original file
 def make_vcf_object(vcf_f):
     res = '\n'.join(change_header(vcf_f)) # join rows with newline
@@ -82,33 +93,25 @@ def make_vcf_object(vcf_f):
 
 
 #Function for storing tool versions and workflow information in the corresponding database tables.
-def ToolVerSanityCheck(conn, vcf_f):#takes two arguments, the connector object and the VCF
+def ToolVerSanityCheck(conn, vcf_f): #takes two arguments, the connector object and the VCF
     cur = conn.cursor()
     vcf_obj = make_vcf_object(vcf_f)
     #get basic metadata from the vcf
-    AV = vcf_obj.metadata['OncomineVariantAnnotationToolVersion'][0]
+    try:
+        WFV = dict(list(vcf_obj.metadata['DRAGENCommandLine'][0].items()))['Version']
+    except:
+        WFV = None
     try:
         BCV = vcf_obj.metadata['basecallerVersion'][0].replace('"','')
     except:
         BCV = None
-    WF = vcf_obj.metadata['IonReporterWorkflowName'][0]
-    WFV = vcf_obj.metadata['IonReporterWorkflowVersion'][0]
     REF = vcf_obj.metadata['reference']
     #get the disease type, if it can be found
     try:
         DT = vcf.obj.metadata['sampleDiseaseType']
     except:
-        DT = 'QC'
+        DT = 'Unknown'
 
-    q1 = '''
-    INSERT IGNORE INTO AnnotationVersion (name)
-        VALUES (%s)'''
-    q2 = '''
-    INSERT IGNORE INTO BaseCallVer (name)
-        VALUES (%s)'''
-    q3 = '''
-    INSERT IGNORE INTO WorkFlowName (name)
-        VALUES (%s)'''
     q4 = '''
     INSERT IGNORE INTO WorkFlowVer (name)
         VALUES (%s)'''
@@ -119,15 +122,12 @@ def ToolVerSanityCheck(conn, vcf_f):#takes two arguments, the connector object a
     INSERT IGNORE INTO DisType (name)
         VALUES (%s)'''
     #add the contigs into the appropriate table
-    val1 = (AV,)
-    val2 = (BCV,)
-    val3 = (WF,)
+    print(WFV)
+    print(REF)
+    print(DT)
     val4 = (WFV,)
     val5 = (REF,)
     val6 = (DT,)
-    cur.execute(q1, val1)
-    cur.execute(q2, val2)
-    cur.execute(q3, val3)
     cur.execute(q4, val4)
     cur.execute(q5, val5)
     cur.execute(q6, val6)
@@ -146,43 +146,49 @@ def insert_Run_info(conn, vcf_f):
     cur = conn.cursor()
     vcf_obj = make_vcf_object(vcf_f)
     #Retrieveing some required info
-    AV = vcf_obj.metadata['OncomineVariantAnnotationToolVersion'][0]
     try:
         BCV = vcf_obj.metadata['basecallerVersion'][0].replace('"','')
     except:
         BCV = None
-    WF = vcf_obj.metadata['IonReporterWorkflowName'][0]
-    WFV = vcf_obj.metadata['IonReporterWorkflowVersion'][0]
+    try:
+        WFV = dict(list(vcf_obj.metadata['DRAGENCommandLine'][0].items()))['Version']
+    except:
+        WFV = None
     REF = vcf_obj.metadata['reference']
     #get the disease type, if it can be found
     try:
         DT = vcf.obj.metadata['sampleDiseaseType']
     except:
-        DT = 'QC'
+        DT = 'Unknown'
     #fetching values for insertion into appropriate Run table
 
-    NAME = vcf_obj.metadata['IonReporterAnalysisName'][0]
-    SEX = vcf_obj.metadata['sampleGender'][0]
+    #NAME = vcf_obj.metadata['IonReporterAnalysisName'][0]
+    cmd = dict(list(vcf_obj.metadata['DRAGENCommandLine_1'][0].items()))['CommandLineOptions']
+    cmd1 = cmd.split()
+    name_index = cmd1.index('--RGID')
+    print(cmd1)
+    NAME = cmd1[name_index+1]
+    try:
+        SEX = vcf_obj.metadata['sampleGender'][0]
+    except:
+        SEX = None
     FORMAT = vcf_obj.metadata['fileformat']
-    DATE = int(vcf_obj.metadata['fileDate'].replace("/",""))
-
+    print(vcf_obj.metadata.keys())
+    try:
+        DATE = int(vcf_obj.metadata['fileDate'].replace("/",""))
+    except:
+        DATE = dict(list(vcf_obj.metadata['DRAGENCommandLine_1'][0].items()))['Date']
+    print(DATE)
+    print(dict(list(vcf_obj.metadata['DRAGENCommandLine_1'][0].items())))
     #find the right internal sql identifiers by searching the name in the other tables and establishing the correct foreign keys
     q1 = 'SELECT id FROM ref_genome WHERE name = %s'
     val1 = (REF,)
     cur.execute(q1, val1)
     REFERENCE = cur.fetchone()[0]
-    q2 = 'SELECT id FROM AnnotationVersion WHERE name = %s'
-    val2 = (AV,)
-    cur.execute(q2, val2)
-    OMAV = cur.fetchone()[0]
-    q3 = 'SELECT id FROM WorkFlowName WHERE name = %s'
-    val3 = (WF,)
-    cur.execute(q3, val3)
-    IONWF = cur.fetchone()[0]
     q4 = 'SELECT id FROM WorkFlowVer WHERE name = %s'
     val4 = (WFV,)
     cur.execute(q4, val4)
-    IONWFVER = cur.fetchone()[0]
+    WFVER = cur.fetchone()[0]
     try:
         CELL = float(vcf_obj.metadata['CellularityAsAFractionBetween0-1'][0])
     except:
@@ -215,7 +221,7 @@ def insert_Run_info(conn, vcf_f):
     q7 = '''
     INSERT IGNORE INTO RunInfo (name, pheno, sex, fileformat, filedate, reference, OM_anno_version, IonWF, IonWF_version, Cellularity, fusionOC, fusionQC, fusionReads, basecall_ver, perc_mapped)
         VALUES ( %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s )'''
-    values = (NAME, PHENO, SEX, FORMAT, DATE, REFERENCE, OMAV, IONWF, IONWFVER, CELL, FUSIONOC, FUSIONQC, FUSIONRD, BCVer, PERMAP)
+    values = (NAME, PHENO, SEX, FORMAT, DATE, REFERENCE, None, None, WFVER, CELL, FUSIONOC, FUSIONQC, FUSIONRD, BCVer, PERMAP)
     cur.execute(q7, values)
     conn.commit()
 
@@ -235,20 +241,17 @@ def insert_Var_types(conn,vcf_f):
         except:
             genes.append(None)
         try:
-            if isinstance(record.INFO['TYPE'], list):
-                ty = record.INFO['TYPE'][0]
-                types.append(ty)
-            else:
-                types.append(record.INFO['TYPE'])
-        except:
             if isinstance(record.INFO['SVTYPE'], list):
                 ty = record.INFO['SVTYPE'][0]
                 types.append(ty)
             else:
                 types.append(record.INFO['SVTYPE'])
-    #print(types)
+        except:
+            types.append('SmVar')
+
     setOfTypes=set(types)
     ls=(list(setOfTypes)) #make the set of variant types a list
+    print(ls)
     for item in ls:
         q = "INSERT IGNORE INTO VarType (name) VALUES (%s)"
         val = (item,)
@@ -311,24 +314,25 @@ def insert_Var_info(conn,vcf_f):
             VAR.append(record.POS)
             VAR.append(record.REF) # append ref allele
             VAR.append(str(record.ALT[i])) #append alt alleles
-            try: # catch perticularities in vcf related to CNV, fusions, splicing or other SVs
-                VAR.append(record.INFO['TYPE'][i])
-                VAR.append(str(record.INFO['LEN'][i]))
-            except:
+            #try: # catch perticularities in vcf related to CNV, fusions, splicing or other SVs
+            try:
                 if isinstance(record.INFO['SVTYPE'], list):
                     if record.INFO['SVTYPE'][0] == 'CNV':
                         VAR.append(record.INFO['SVTYPE'][0])
-                        VAR.append(str(record.INFO['LEN'][0]))
+                        VAR.append(str(record.INFO['SVLEN'][0]))
                     else:
                         VAR.append(record.INFO['SVTYPE'][0])
                         VAR.append(None)
                 else:
                     if record.INFO['SVTYPE'] == 'CNV':
                         VAR.append(record.INFO['SVTYPE'])
-                        VAR.append(str(record.INFO['LEN']))
+                        VAR.append(str(record.INFO['SVLEN']))
                     else:
                         VAR.append(record.INFO['SVTYPE'])
                         VAR.append(None)
+            except:
+                VAR.append("SmVar")
+                VAR.append(None)
             NAME = '_'.join(str(e) for e in VAR) #unique name which is just the concatenation of the PARAMS list into a string
             NAME = NAME.replace('>','')
             NAME = NAME.replace('<','') #remove problematic characters
@@ -395,7 +399,7 @@ def insert_Var_info(conn,vcf_f):
 def insert_Call_info(conn, vcf_f):
     cur = conn.cursor()
     vcf_obj = make_vcf_object(vcf_f)
-    SMPL = vcf_obj.metadata['IonReporterAnalysisName'][0]
+    SMPL = vcf_f
     q1 = "SELECT id FROM RunInfo WHERE name = %s"
     val1 = (SMPL,)
     cur.execute(q1, val1)
@@ -409,10 +413,8 @@ def insert_Call_info(conn, vcf_f):
             PARAMS.append(record.POS)
             PARAMS.append(record.REF) # append ref allele
             PARAMS.append(str(record.ALT[i])) #append alt alleles
-            try: # catch perticularities in vcf related to CNV, fusions, splicing or other SVs
-                PARAMS.append(record.INFO['TYPE'][i])
-                PARAMS.append(str(record.INFO['LEN'][i]))
-            except:
+#            try: # catch perticularities in vcf related to CNV, fusions, splicing or other SVs
+            try:
                 if isinstance(record.INFO['SVTYPE'], list):
                     if record.INFO['SVTYPE'][0] == 'CNV':
                         PARAMS.append(record.INFO['SVTYPE'][0])
@@ -427,13 +429,15 @@ def insert_Call_info(conn, vcf_f):
                     else:
                         PARAMS.append(record.INFO['SVTYPE'])
                         PARAMS.append(None)
+            except:
+                PARAMS.append("SmVar")
+                PARAMS.append(None)
+
             NAME = '_'.join(str(e) for e in PARAMS) #unique name which is just the concatenation of the PARAMS list into a string
             NAME = NAME.replace('>','')
             NAME = NAME.replace('<','')
+            print(NAME)
             # format data for insertion into table
-            if NAME in ['chr21_36231771_T_T]chr8:93029591]_Fusion_None', 'chr9_5073770_G_T_snp_1', 'chr15_90631838_C_T_snp_1', 'chr17_7577559_G_A_snp_1']:
-                print(record)
-                print(record.INFO)
             # add runID, varID, genotype, depth, obsRef, obsAlt, AF, filter, copynumber, normCount. insert NULL where appropriate
             q2 = 'SELECT id FROM VarData WHERE name = %s' # get Var ID
             val2 = (NAME,)
@@ -470,6 +474,24 @@ def insert_Call_info(conn, vcf_f):
                         cur.execute(q3, values)
                 except:
                     continue
+            elif PARAMS[4] in ['DUP', 'INV', 'DEL', 'INS', 'BND']:
+                try:
+                    if not record.FILTER:
+                        record.FILTER = ['PASS']
+                    if record.FILTER[0] == 'PASS':
+                        #NC = record.INFO['VF']
+                        DP = int(record.INFO['VF'][1])
+                        FL = record.FILTER[0]
+                        q3 = '''INSERT IGNORE INTO CallData (sample, variant, genotype, geno_qual, coverage, ref_count, alt_count, norm_count, afreq, pass_filter, cn)
+                        VALUES ( %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s )'''
+                        values = (SMPLID, VARID, GT, GQ, DP, None, None, None, None, FL,None)
+                        cur.execute(q3, values)
+                except:
+                    continue
+
+
+
+
             elif PARAMS[4] == '5p3pAssays': # The important metric here is 5p3pAssays, which is the imbalance score, added into the cn field
                 DP = int(record.INFO['READ_COUNT'][0])
                 CN = float(record.INFO['5P_3P_ASSAYS'])
@@ -508,9 +530,14 @@ def insert_Call_info(conn, vcf_f):
                 values = (SMPLID, VARID, GT, GQ, None, None, None, NC, None,FL, CN)
                 cur.execute(q3, values)
             else:
+                cmd = dict(list(vcf_obj.metadata['DRAGENCommandLine_1'][0].items()))['CommandLineOptions']
+                cmd1 = cmd.split()
+                name_index = cmd1.index('--RGID')
+                sid = cmd1[name_index+1]
                 DP = record.INFO['DP']
-                RO = record.INFO['RO']
-                AO = record.INFO['AO'][i]
+                call = record.genotype(sid)['AD']
+                RO = call[0]
+                AO = call[i+1]
                 AF = str(record.INFO['AF'][i])
                 if not record.FILTER:
                     FL = 'PASS'
@@ -556,7 +583,7 @@ def main():
     #password_file = '/secrets/db-password'
     args = _parse_args()
     #pf = open(password_file, 'r')
-    conn = mysql.connector.connect(host='db',user='usr',password='usrpass',database='vardb', port = 3306)
+    conn = mysql.connector.connect(host='localhost',user='vitalitenb',password='GeMo@8624848',database='vardb', port = 3306)
     ToolVerSanityCheck(conn, args.input)
     insert_Run_info(conn, args.input)
     insert_Var_types(conn, args.input)

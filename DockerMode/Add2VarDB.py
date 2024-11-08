@@ -28,6 +28,9 @@ import argparse
 #python3 ../DB_init_v2.py     !!! ONLY THE 1st TIME
 #for i in $(ls *.vcf); do python3 Add_to_DB_v2.py -i $i; done
 
+#for testing
+#open the sample VCF
+#vcf_file = "C:\\Users\\Eric\\Documents\\Vitalite\\DB_QC\\HD200_SSEQ_CONTROLE_v5\\HD200_SSEQ_CONTROLE_v5_Non-Filtered.vcf"
 
 #Function to fix several bugs in the VCF header.
 def change_header(old_vcf):
@@ -73,6 +76,9 @@ def write_fix_file(title, new_file):
     with open(title, 'w') as fl:
         fl.write('\n'.join(new_file))
 
+#write_fix_file("new_file.vcf", change_header(vcf_file))
+#ex_vcf = vcf.Reader(open("new_file.vcf",'r'))
+#print('\n'.join(change_header(vcf_file)))
 #function for creating a file-like object with correct header from the original file
 def make_vcf_object(vcf_f):
     res = '\n'.join(change_header(vcf_f)) # join rows with newline
