@@ -1,40 +1,36 @@
-This project contains a series of Python scripts and a shell script to manage and analyze genetic variant data within the `HD827` and `EXOME` databases. The workflow automates the process of downloading new data from a ThermoFisher server, processing it, and inserting it into the databases. A Dash application is then used to visualize and analyze the data.
+This project contains a series of Python scripts and a shell script to manage and analyze genetic variant data within the `vardb` and database. It displays an interactive dash app for tracking variant information run-to-run in internal standards from clinical sequencing batches.
+The workflow can also automate the process of downloading new data from a ThermoFisher server, processing it, and inserting it into the databases via an API. It has been tested on thermofisher GENEXUS technology with Oncomine OMA, OCA+ and OFA kits.  
 
 # Workflow Overview
 
-This system provides quality control data management and analysis for targeted exome sequencing, using standards like HD827. It involves 2 main components:
+This system provides quality control data management and analysis for targeted exome sequencing, using standards like HD827 from Horizon Discovery with known allele frequencies for specific variants. It involves 2 main components:
 
-1. **ThermoFisher Server:** Processes the raw data and provides access to analyzed data through an API. (Ion Reporter software in this example).
-2. **Main Server:** Hosts the MySQL databases (e.g., `HD827`, `EXOME`), runs data retrieval and processing scripts, and hosts the Dash visualization application.
+1. **Remote Server:** Processes the raw data and provides access to filtered, analyzed data through an API. (Ion Reporter software in our example). Alternatively, we have provided scripts to adapt DRAGEN (Illumina) generated vcf files into the existing MySQL framework.
+2. **Host Server:** Hosts the MySQL databases (e.g., `vardb`), runs data retrieval and processing scripts, and hosts the Dash visualization application.
 
 **Workflow Breakdown**
 ![Pipeline](Pipeline_VarDB.jpg)
 
-1. **New Data Generation:** New FASTQ files are generated on the **Source Server** with standardized identifier prefixes.
-2. **Run Identification and API Request:** A cron job on the **Main Server**, managed by a script like `get_prefixes.sh`, identifies new runs by checking for these prefixes. It then triggers an API request to the **ThermoFisher Server**.
-3. **Data Processing:** The **ThermoFisher Server** processes the raw FASTQ data using the specified workflow (e.g., IonReporter software).
-4. **Data Request and Download:** End-users analyze the processed data on the **ThermoFisher Server** (e.g., using IonReporter). A zip file containing the analyzed data in VCF format is then requested through the API.
-5. **Data Validation and Insertion:**
-   - The **Main Server** downloads the zip file from the **ThermoFisher Server**.
-   - A Python script (e.g., `TFAPI_dwl827.py`) unzips the file.
-   - Another Python script (e.g., `Add2VarDB827.py`) validates and corrects the VCF data and inserts it into the appropriate MySQL database (e.g., `HD827`).
-6. **Data Visualization:** A final Python script (e.g., `stds_dash_sql.HD827.py`) running on the **Main Server** retrieves the data from the database and displays it in an interactive dashboard using the Dash framework. This dashboard is accessible via a web browser.
+1. **New Data Generation:** New FASTQ files are generated on the **Host Server** with standardized identifier prefixes (`vardb`).
+2. **Run Identification and API Request:** A cron job on the **Main Server**, runs the API query for files within a 25-day window, checking for user-analyzed vcf files with the stardardized prefixes. It then triggers an API request to the **ThermoFisher Server** to download the files.
+3. **Data Validation and Insertion:**
+   - The **Host Server** downloads the zip file from the **ThermoFisher Server**.
+   - A Python script (e.g., `TFAPI_dwl.py`) unzips the file.
+   - Another Python script (e.g., `Add2VarDB.py`) validates and corrects the VCF header and inserts the data into the appropriate MySQL database (e.g., `vardb`).
+6. **Data Visualization:** A final Python script (e.g., `vardb.py`) running on the **Host Server** retrieves the data from the database and displays it in an interactive dashboard using the Dash framework. This dashboard is accessible via a web browser.
 
 # Prerequisites
 
-- **Source Server:**
+- **Host Server:**
    -  `cron` for scheduling tasks.
-   -  `scp` for secure file transfer. 
+   -  `scp` for secure file transfer.
+   -  `docker` and `docker-compose`
 - **ThermoFisher Server:**
    -  Active ThermoFisher account with API access.
-   -  Authentication token for API requests.
-- **Main Server:**
-   - Python 3.6 or later
-   - Anaconda
-   - MySQL
-   - Python Modules: `glob`, `subprocess`, `time`, `datetime`, `csv`, `requests`, `urllib3`, `sys`, `mysql.connector`, `os`, `re`, `numpy`, `pandas`, `vcf`, `json`, `io`, `ast`, `dash`, `dash_auth`, `plotly`, `statistics`
+   -  Authentication credentials for API requests.
 
-# Installation
+
+# Installation and Testing
 
 1. **Clone the repository on the Main Server:**
    ```sh
@@ -42,126 +38,67 @@ This system provides quality control data management and analysis for targeted e
    cd GeneticVariantsDB
    ```
 
-2. **Set up the conda environment:**
+2. **Set up the bind mount files:**
    ```sh
-   conda create --name bioinfo_env python=3.8
-   conda activate bioinfo_env
-   pip install -r requirements.txt
+   mkdir /home/<user>/dash-files
+   cp GeneticVariantsDB/data/*.txt /home/<user>/dash-files
+   cp GeneticVariantsDB/data/*.tsv /home/<user>/dash-files
    ```
 
-3. **Set up MySQL:**
-   - Create the `HD827` and `EXOME` databases.
-   - Update the database credentials in `InitVarDB827.py` and `InitExomeDB_nbirdt.py`.
+3. **Set Host Parameters:**
+   - Open `/home/<user>/dash-files/config.txt` and set the desired parameters, such as ThermoFisher Sequencer IP address, login credentials, standards file prefix and number of standard deviations for boundaries.
+   - Open `GeneticVariantsDB/DockerMode/compose.yaml` and edit all volume paths to `/home/<user>/dash-files`.
+   - Run ``` docker compose up -d ```
+
+4. **Access the app:**
+   - The app will be available at `http://[your-server-ip]:8090` in your web browser.
+
+5. **Stopping the app:**
+   - Stop the Docker containers:
+      ```sh
+      docker compose down
+      ```
+   - **Warning:**  Using `docker compose down -v` will remove the MySQL data volume, deleting all stored data, `docker compose down` will only stop the app without removing stored data.
 
 # Usage
 To use our proposed solution, you have 2 ways to start:
 - Directly by using your own environment
 - Using Docker Compose (Highly recommended)
 
-We will assume that the app runs on the same server where data is generated.
 
-## Normal
 
-### Step 1: Initialize the Databases (on Main Server)
+## API
 
-```sh
-python InitVarDB827.py
-python InitExomeDB_nbirdt.py
-```
-
-### Step 2: Configure Cron Job (on Source Server)
-
-Set up a cron job to regularly execute a script that:
-   - Checks for new FASTQ files with the `HDXXX` identifier.
-   - Securely copies (scp) new files to the designated directory on the Main Server.
-   - (Optional) Triggers the data processing script on the Main Server.
-
-In the `cronjobs/TFAPI_dwl.py` script, two parameters need to be manually set: the machine IP address (replace `0.0.0.0`) and the authorization token for communicating with the ThermoFisher API with the user account (replace the placeholder after `Authorization:`).
-
-```python
-csv_reader = reader(
-    open("/var/dash-files/sample.prefixes", "r"),
-    quotechar="\""
-)
-ip_addr = "0.0.0.0"
-auth_token = "Authorization:"
-```
-
-Edit your crontab on the sequencer's server to include:
+### Step 1: Initialize the cron job (on Host Server)
 
 ```sh
-*/15 * * * * /home/ionadmin/get_prefixes.sh
+crontab -e
+```
+Then paste the following into the scheduler, replacing "acri" with your username:
+
+```sh
+*/15 * * * * docker exec -it acri-cronjobs-1 conda run -n docker-base --no-capture-output python3 TFAPI_dwl.py
 ```
 
-### Step 3: Run Data Processing (on Main Server)
+## Sample data
 
-   - **Manual Execution:**
-     ```sh
-     docker exec -it acri-cronjobs-1 conda run -n docker-base --no-capture-output python3 TFAPI_dwl.py
-     ```
-   - **Automated (Triggered by Cron):** Modify `TFAPI_dwl827.py` to automatically detect and process new files placed in the designated directory by the Source Server's cron job.
+To test the app with the provided sample data, populate the mysql tables with the provided vcf files, as follows, replacing `acri-cronjobs-1` with your cronjobs container name:
 
-This command should also be inserted in the `/home/ionadmin/get_prefixes.sh` file.
+```sh
+docker cp GeneticVariantsDB/data/*.vcf acri-cronjobs-1
+```
 
-### Step 4: Visualize the Data (on Main Server)
+Then, login to the container and insert data into the mysql container:
 
-   ```sh
-   python stds_dash_sql.HD827.py
-   ```
-   - Access the dashboard in your web browser: `http://[your-server-ip]:8090` (adjust port if necessary).
-
-## With Docker Compose
-This section provides a step-by-step guide for users who want to deploy the system using Docker Compose. It covers the necessary configuration, how to build and run the containers, and how to access the Dash application.
-
-  ```sh
-   cd DockerMode
-  ```
-
-### 1. **Configuration:**
-
-   -  **Edit `cronjobs/TFAPI_dwl.py`:**
-     -  Set `ip_addr` to the IP address of your sequencing server.
-     -  Set `auth_token` to your ThermoFisher API authorization token. 
-   -  **Edit `docker-compose.yml`:**
-     - Update the `source` path in the bind mount to the actual directory path on your host machine where you have placed `sample.prefixes`, `comments.txt`, and `exclusions.tsv`.
-   - **Create Empty Files:**
-     - In the host directory you specified for the bind mount (e.g., `/home/ionadmin/dash-files`), run the following:
-        ```sh
-        touch exclusions.tsv && touch comments.txt
-        ```
-   - **Edit `get_prefixes.sh`:**
-     -  Update the `find` command's path to match the location where your Ion Reporter run directories are stored.
-     -  Adjust the `grep` pattern if your sample prefixes don't start with "HD827".
-   - **Edit crontab:**
-      - Open your crontab (using `sudo crontab -e` if needed).
-      -  Add the following line, making sure the path to `get_prefixes.sh` is correct:
-         ```
-         */15 * * * * /home/ionadmin/get_prefixes.sh 
-         ```
-
-### 2. **Build and run:**
-   - Build and start the Docker containers:
-      ```sh
-      docker compose up --detach
-      ```
-
-### 3. **Access the app:**
-
-   - The app will be available at `http://[your-server-ip]:8090` in your web browser.
-
-### 4. **Stopping the app:**
-
-   - Stop the Docker containers:
-      ```sh
-      docker compose down
-      ```
-   - **Warning:**  Using `docker compose down -v` will remove the MySQL data volume, deleting all stored data.
-
+```sh
+docker exec -it acri-cronjobs-1 bash
+for i in *.vcf; do python3 Add2VarDB.py -i $i; done
+```
 
 ## Notes:
 
 - The provided cron job runs every 15 minutes. Adjust the schedule as needed. 
-- You may need to modify the regex patterns in `get_prefixes.sh` to match your specific file naming conventions.
+- You may need to modify the regex prefix patterns in `config.txt` to match your specific file naming conventions.
 - It is recommended to capture at least 5 runs initially to ensure the graphics in the app are interpretable and to avoid potential errors. 
 - The Docker Compose setup assumes the Dash app and the sequencing data are on the same server. If this is not the case, further adjustments will be necessary. 
  
@@ -177,4 +114,5 @@ This section provides a step-by-step guide for users who want to deploy the syst
 
 - **Eric Allain** - Script Author
 - **Hadrien Gayap** - Editor
+- **Nicolas Crapoulet and Philippe-Pierre Robichaud** - Testers & Feedback
 - **ACRI (Atlantic Cancer Research Institute)** - Organization
