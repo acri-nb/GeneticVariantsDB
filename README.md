@@ -12,7 +12,7 @@ This system provides quality control data management and analysis for targeted e
 ![Pipeline](Pipeline_VarDB.jpg)
 
 1. **New Data Generation:** New FASTQ files are generated on the **Host Server** with standardized identifier prefixes (`vardb`).
-2. **Run Identification and API Request:** A cron job on the **Main Server**, runs the API query for files within a 25-day window, checking for user-analyzed vcf files with the stardardized prefixes. It then triggers an API request to the **ThermoFisher Server** to download the files.
+2. **Run Identification and API Request:** A cron job on the **Host Server**, runs the API query for files within a 25-day window, checking for user-analyzed vcf files with the stardardized prefixes. It then triggers an API request to the **ThermoFisher Server** to download the files.
 3. **Data Validation and Insertion:**
    - The **Host Server** downloads the zip file from the **ThermoFisher Server**.
    - A Python script (e.g., `TFAPI_dwl.py`) unzips the file.
