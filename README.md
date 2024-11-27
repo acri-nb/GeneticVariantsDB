@@ -173,13 +173,13 @@ Contributions are welcome! Please fork the repository and submit a pull request.
 
 ## License
 
-MIT License
+The software is released under [MIT License](LICENSE).
 
 
 ## Authors
 
 * Eric Allain - Script Author
 * Hadrien Gayap - Editor
-* Nicolas Crapoulet and Philippe-Pierre Robichaud - Testers & Feedback
+* Nicolas Crapoulet, Philippe-Pierre Robichaud, Jessica Darmendre & Chloe Michaud - Testers & Feedback
 * ACRI (Atlantic Cancer Research Institute) - Organization
 
