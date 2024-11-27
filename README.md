@@ -1,4 +1,4 @@
-# Genetic Variant Analysis Pipeline for Targeted Exome Sequencing
+# MGDB: Genetic Variant Analysis Pipeline for Targeted Exome Sequencing
 
 This project provides a pipeline for managing and analyzing genetic variant data from targeted exome sequencing, using standards like HD827 to track variant information across sequencing runs. The pipeline automates data download from ThermoFisher servers (or processes Illumina DRAGEN output), processes the data, and visualizes it in an interactive Dash application.
 
@@ -30,8 +30,8 @@ The pipeline follows these key steps:
 
 **Host Server:**
 
-* Docker: Version 20.10 or later (tested with [Specific Version])
-* Docker Compose: Version 1.29 or later (tested with [Specific Version])
+* Docker: Version 24.0.2 or later
+* Docker Compose: Version 2.18.1 or later
 * `cron` for scheduling tasks
 * Git: For cloning the repository
 * Python 3 and required Python packages defined in included Dockerfile.
@@ -93,14 +93,14 @@ The app will be available at `http://[your-server-ip]:8090` in your web browser.
 
 ### Sample Data and Testing
 
-1. Copy the sample VCF files to the cronjobs container:
+1. Copy the sample VCF files to the cronjobs container:  *(Make sure the container is running. You may need to start it separately using `docker-compose up -d cronjobs`)*
 
 ```bash
 docker cp GeneticVariantsDB/data/*.vcf <container_name_of_cronjobs_container>:/app/
 ```
-Replace `<container_name_of_cronjobs_container>` with the name of your running cronjobs Docker container (check with `docker ps`).
+Replace `<container_name_of_cronjobs_container>` with the name of your running cronjobs Docker container (check with `docker ps`).  If you are using the default docker-compose file, the container name would likely be something like  `geneticvariantsdb_cronjobs_1`.
 
-2. Insert the sample data into the MySQL database:
+2. Insert the sample data into the MySQL database: *Make sure to execute these commands inside the container.*
 
 ```bash
 docker exec -it <container_name_of_cronjobs_container> bash
@@ -122,10 +122,11 @@ The pipeline uses the ThermoFisher API to automatically download VCF files. The 
 crontab -e
 ```
 
-2. Add the following line, replacing `<user>` and `<container_name_of_cronjobs_container>` appropriately:
+2. Add the following line, replacing `<user>` and `<container_name_of_cronjobs_container>` appropriately: For example, if your user is `ubuntu`, the command would look like this:
+
 
 ```bash
-*/15 * * * * docker exec -it <container_name_of_cronjobs_container> conda run -n docker-base --no-capture-output python3 TFAPI_dwl.py
+*/15 * * * * docker exec -it geneticvariantsdb_cronjobs_1 conda run -n docker-base --no-capture-output python3 TFAPI_dwl.py
 ```
 
 This cron job runs every 15 minutes. Adjust the schedule as needed.
@@ -135,7 +136,7 @@ This cron job runs every 15 minutes. Adjust the schedule as needed.
 
 **Adding Variant IDs to regions.txt:**
 
-1. Retrieve variant IDs from the `vardb` database:
+1. Retrieve variant IDs from the `vardb` database: *You can connect to the MySQL database using a MySQL client and the connection details from your `docker-compose.yml` file.*
 
 ```sql
 SELECT   
@@ -162,7 +163,8 @@ FROM
 
 * **Problem:** Dash app not accessible.
 * **Solution:** Verify Docker containers are running (`docker ps`), check server IP and port, and ensure no firewall is blocking access.
-
+* **Problem:** Issues inserting data into the database.
+* **Solution:** Verify database connection details in `docker-compose.yml` and ensure the database is running. Check the logs of the `cronjobs` container for error messages.
 
 ## Contributing
 
@@ -171,7 +173,7 @@ Contributions are welcome! Please fork the repository and submit a pull request.
 
 ## License
 
-[Specify your license here, e.g., MIT License]
+MIT License
 
 
 ## Authors
@@ -180,3 +182,4 @@ Contributions are welcome! Please fork the repository and submit a pull request.
 * Hadrien Gayap - Editor
 * Nicolas Crapoulet and Philippe-Pierre Robichaud - Testers & Feedback
 * ACRI (Atlantic Cancer Research Institute) - Organization
+
