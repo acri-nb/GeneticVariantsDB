@@ -70,16 +70,25 @@ docker-compose build
 
 ### Configuration
 
-1. **config.txt:**  Edit `/home/<user>/dash-files/config.txt`:
+1. **config.txt:**  Edit or create `/home/<user>/dash-files/config.txt`:
+
+```bash
+0.0.0.0
+user
+password
+sample_prefix
+3
+```
+
     * Replace `"0.0.0.0"` with your server's IP address.
     * Enter your ThermoFisher API credentials for `usr` and `pass` (if applicable).
     * Set the `sample_prefix` to match your internal standards file names.
     * Adjust the standard deviation scalar as needed.
 
-2. **compose.yaml:** Edit `GeneticVariantsDB/DockerMode/compose.yaml`:
+3. **compose.yaml:** Edit `GeneticVariantsDB/DockerMode/compose.yaml`:
     * Update all volume paths to point to `/home/<user>/dash-files`.
 
-3. **regions.txt:** After inserting your VCF data into the MySQL database, add the variant IDs of interest to `/home/<user>/dash-files/regions.txt`. (See "Usage - Data Management" below).
+4. **regions.txt:** After inserting your VCF data into the MySQL database, add the variant IDs of interest to `/home/<user>/dash-files/regions.txt`. (See "Usage - Data Management" below).
 
 
 ### Running the Application
@@ -88,7 +97,7 @@ docker-compose build
 docker-compose up -d
 ```
 
-The app will be available at `http://[your-server-ip]:8090` in your web browser.
+The app will be available at `http://[your-server-ip]:8090` in your web browser. Running the app may require elevated permissions.
 
 
 ### Sample Data and Testing
