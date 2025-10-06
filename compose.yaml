@@ -14,7 +14,7 @@ services:
     volumes:
       - db-data:/var/lib/mysql
       - type: bind
-        source: /Volumes/gth5TExt1/VS/IARC/HGDB/GeneticVariantsDB/data
+        source: /Volumes/gth5TExt1/VS/IARC/HGDB/GeneticVariantsDB/data #line needs to be changed to your local dir
         target: /dash-files
     environment:
       - MYSQL_DATABASE=vardb
@@ -38,7 +38,7 @@ services:
     volumes:
       - db-data:/var/lib/mysql
       - type: bind
-        source: /Volumes/gth5TExt1/VS/IARC/HGDB/GeneticVariantsDB/data
+        source: /Volumes/gth5TExt1/VS/IARC/HGDB/GeneticVariantsDB/data #line needs to be changed to your local dir
         target: /dash-files
     environment:
       - MYSQL_DATABASE=vardb
