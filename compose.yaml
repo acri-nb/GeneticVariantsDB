@@ -9,10 +9,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     volumes:
       - db-data:/var/lib/mysql
       - type: bind
-        source: /home/acri/dash-files #line needs to be changed to your local dir
+        source: /Volumes/gth5TExt1/VS/IARC/HGDB/GeneticVariantsDB/data
         target: /dash-files
     environment:
       - MYSQL_DATABASE=vardb
@@ -20,6 +22,7 @@ services:
       - MYSQL_PASSWORD=usrpass
       - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/db-password
       - MYSQL_ROOT_HOST=%
+      - REDIS_URL=redis://redis:6379/0
     ports:
       - 8090:8090
   
@@ -35,7 +38,7 @@ services:
     volumes:
       - db-data:/var/lib/mysql
       - type: bind
-        source: /home/acri/dash-files #line needs to be changed to your local dir
+        source: /Volumes/gth5TExt1/VS/IARC/HGDB/GeneticVariantsDB/data
         target: /dash-files
     environment:
       - MYSQL_DATABASE=vardb
@@ -69,9 +72,18 @@ services:
     ports:
       - 3309:3309
 
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    ports:
+      - 6380:6379
 
 volumes:
   db-data:
+  redis-data:
   #comments:
   #exclusions:
 

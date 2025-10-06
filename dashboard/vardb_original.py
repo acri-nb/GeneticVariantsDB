@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
-# Optimized version with Redis caching, improved SQL queries, and performance indexes
-# Maintains full compatibility with original vardb.py functionality
+#works OK updates seem to be linked to the DB wen pressing refresh button. 
+
 
 #Dependencies
 import dash
 import dash_auth
-from dash import Dash, html, dcc, dash_table, Input, Output, State
+from dash_extensions.enrich import DashProxy, ServersideOutput, ServersideOutputTransform, html, dcc, dash_table, Input, Output, State
 import pandas as pd
 import plotly.graph_objs as go
 import numpy as np
@@ -19,115 +19,43 @@ import csv
 from flask_caching import Cache
 import scipy
 import scipy.stats
-import redis
-import os
-import json
-import hashlib
 
-# Initialize Redis connection
-def get_redis_client():
-    redis_url = os.getenv('REDIS_URL', 'redis://redis:6379/0')
-    try:
-        return redis.from_url(redis_url, decode_responses=True)
-    except:
-        print("Redis not available, continuing without cache")
-        return None
 
-# Cache helper functions
-def get_cache_key(*args):
-    """Generate a cache key from arguments"""
-    key_string = "_".join(str(arg) for arg in args)
-    return hashlib.md5(key_string.encode()).hexdigest()
-
-def cache_get(key):
-    """Get data from Redis cache"""
-    try:
-        redis_client = get_redis_client()
-        if redis_client:
-            cached_data = redis_client.get(key)
-            if cached_data:
-                return json.loads(cached_data)
-    except Exception as e:
-        print(f"Cache get error: {e}")
-    return None
-
-def cache_set(key, data, ttl=300):
-    """Set data in Redis cache with TTL (default 5 minutes)"""
-    try:
-        redis_client = get_redis_client()
-        if redis_client:
-            redis_client.setex(key, ttl, json.dumps(data, default=str))
-    except Exception as e:
-        print(f"Cache set error: {e}")
-
-#read the data from the mysql database with optimized query
+#read the data from the mysql database with the hd200 samples
 def get_sql():
-    start = time.time()
-    
-    # Check cache first
-    cache_key = get_cache_key("main_data")
-    cached_data = cache_get(cache_key)
-    if cached_data:
-        print(f"Cache hit! Retrieved in {time.time() - start:.2f} seconds")
-        return pd.DataFrame(cached_data)
-    
-    # If not in cache, query database
-    print("Cache miss, querying database...")
-    
-    #Use MySQL Connector for establishing link to DB in function
+    start =time.time()
+    #Use MySQL Connector for establishing link to DB in function, so that we may update live to the user
     mydb = mysql.connector.connect(host='db', database = 'vardb',user="usr", passwd='usrpass')
-    
     exclusions = []
     with open('/dash-files/exclusions.tsv') as f:
         exclude = f.read().splitlines()
         exclusions = exclude
-    print(f"Exclusions: {exclusions}")
-    
-    # Optimized query with explicit JOINs and better performance
-    query = """
-    SELECT 
-        c.pass_filter,
-        c.afreq,
-        c.coverage,
-        c.norm_count,
-        c.sample,
-        v.name as variant_name,
-        r.IonWF_version,
-        r.name as sample_name,
-        r.filedate,
-        t.name as transcript_name,
-        h.transcript,
-        h.HGVSc,
-        h.HGVSp,
-        g.name as gene_name
-    FROM CallData c
-    INNER JOIN VarData v ON v.id = c.variant
-    INNER JOIN RunInfo r ON r.id = c.sample
-    LEFT JOIN HGVS h ON h.id = v.hgvs
-    LEFT JOIN Transcripts t ON t.id = h.transcript
-    LEFT JOIN Genes g ON g.id = v.gene
-    ORDER BY r.filedate DESC, v.name
-    """
-    
-    df = pd.read_sql(query, mydb)
+    print(exclusions)
+    query = "SELECT CallData.pass_filter,  CallData.afreq,  CallData.coverage,  CallData.norm_count,  CallData.sample, VarData.name, RunInfo.IonWF_version, RunInfo.name, RunInfo.filedate, Transcripts.name , HGVS.transcript, HGVS.HGVSc, HGVS.HGVSp, Genes.name FROM VarData LEFT JOIN HGVS ON HGVS.id = VarData.hgvs LEFT JOIN CallData ON VarData.id = CallData.variant LEFT JOIN RunInfo ON CallData.sample = RunInfo.id LEFT JOIN Transcripts ON Transcripts.id = HGVS.transcript LEFT JOIN Genes ON VarData.gene = Genes.id;"
+    df = pd.read_sql(query,mydb)
     mydb.close()
-    
+
     #read-in data and change duplicated column headers
     df.columns = ['pass_filter','afreq','coverage','norm_count','sample','variant','IonWF_version','samplename','filedate','trname','transcript','HGVSc', 'HGVSp','gene']
-    
-    #get only HD200 and seracare samples (exclude unwanted samples)
+
+    #get only HD200 and seracare samples
     df = df[~df['samplename'].isin(exclusions)]
-    
     #Get the variants of interest
     regions = []
     with open('/dash-files/regions.txt') as f:
         region = f.read().splitlines()
         regions = region
-    
-    # Filter by regions of interest
+    #print(regions)
+
+    ####needs to be read in from a BED file if possible
     df = df[df['variant'].isin(regions)]
-    
-    # Replace fusion gene names with readable names
+    #with pd.option_context('display.max_rows', None, 'display.max_columns', None):
+    #    print(df)
+    #Change fusion gene names to something more interpretable
+    #Getting precise coordinates and SQL variant names can be done by using the following command in bash:
+
+    #mysql -u eallain -p -e "USE HD200_database; SELECT  CallData.genotype,  CallData.geno_qual,  CallData.pass_filter,  CallData.afreq,  CallData.coverage,  CallData.norm_count,  CallData.sample, VarData.name, RunInfo.IonWF_version FROM  CallData  JOIN VarData ON VarData.id = CallData.variant JOIN RunInfo ON RunInfo.id = CallData.sample;" > dash_variant_data.txt
+
     df.replace(["chr1_154142876_C_C[chr1:156844363[_Fusion_None",\
     "chr1_156100564_G_G[chr1:156844697[_Fusion_None",\
     "chr1_205649522_C_C]chr7:140494267]_Fusion_None",\
@@ -181,17 +109,21 @@ def get_sql():
     "PML(6)-RARA(3)",\
     "RUNX1(3)-RUNX1T1(3)",\
     "TCF3(16)-PBX1(3)"], inplace = True)
-    
+
+    #You can isolate specifiic workflows
+    #df = df.loc[df['IonWF_version'] == 1]
+
     #Sort by date
     df = df.sort_values(["filedate","variant"])
     df = df.reset_index(drop=True)
-    
+
     limit = None
-    with open('/dash-files/config.txt') as f:
+
+    with open('/dash-files/config.txt') as f: # get the cleared samples
         vals = f.read().splitlines()
         limit = int(vals[4])
-    
-    #Drop uninformative columns, add stdev for numerical values and group the entire table by variant
+
+    #Drop uninformative columns, add stdev for numerical values and group the entire table by variant. means and modes are used, except the samples names, which are the sum of unique names. 
     tabledf = df.drop(labels=['IonWF_version','pass_filter','transcript'], axis =1)
     tabledf['afreq'] = tabledf['afreq'].fillna(0)
     tabledf['afreq'] = tabledf['afreq'].astype(float)
@@ -200,38 +132,33 @@ def get_sql():
     tabledf['norm_count'] = 1000000*(tabledf['norm_count'])
     tabledf['afreq_normcount'] = tabledf['afreq'] + tabledf['norm_count']
     tabledf['sd'] = tabledf.groupby('variant').afreq_normcount.transform('std')
-    tabledf['upper_bound'] = tabledf['afreq_normcount'] + limit*(tabledf['sd'])
+    tabledf['upper_bound'] = tabledf['afreq_normcount'] + limit*(tabledf['sd']) #This sets your hard reject limits based on the integer in the config files 5th line.
     tabledf['lower_bound'] = tabledf['afreq_normcount'] - limit*(tabledf['sd'])
     tabledf = tabledf.drop('afreq_normcount', axis=1)
-    
-    # Cache the result
-    cache_set(cache_key, tabledf.to_dict('records'), ttl=300)  # 5 minutes TTL
-    
-    print(f"Database query completed in {time.time()-start:.2f} seconds")
-    return tabledf
+    print(time.time()-start)
+    return(tabledf)
 
-def getSummary(data, bioMolecule):
-    # Check cache first
-    cache_key = get_cache_key("summary", bioMolecule, str(hash(str(data))))
-    cached_data = cache_get(cache_key)
-    if cached_data:
-        return pd.DataFrame(cached_data)
-    
+#initial call for the database query
+#DB = get_sql()
+
+def getSummary(data, bioMolecule): #function to summarize statistics on cleared samples
     cleared_samples = []
-    with open('/dash-files/cleared.tsv') as f:
+    with open('/dash-files/cleared.tsv') as f: # get the cleared samples
         include = f.read().splitlines()
         cleared_samples = include
     limit = None
-    with open('/dash-files/config.txt') as f:
+    with open('/dash-files/config.txt') as f: # get the cleared samples
         vals = f.read().splitlines()
         limit = int(vals[4])
-    
     if bioMolecule == "DNA":
         neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
+        #data = data[neworder]
         t0 = pd.read_json(data)
         t0 = t0[neworder]
-        t0 = t0.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
+        t0 = t0.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x) #when reading from json, floats are 15 decimal points long for some reason.... need to round
+        #get only data with cleared samples
         summarizedData = t0[t0['samplename'].isin(cleared_samples)]
+        #recalculate means, sd and limits
         summarizedData['sd'] = summarizedData.groupby('variant').afreq.transform('std')
         summarizedData['upper_bound'] = summarizedData['afreq'] + limit*(summarizedData['sd'])
         summarizedData['lower_bound'] = summarizedData['afreq'] - limit*(summarizedData['sd'])
@@ -241,19 +168,19 @@ def getSummary(data, bioMolecule):
         summarizedData = summarizedData[neworder1]
         summarizedData = summarizedData[summarizedData['variant'].str.startswith('chr')]
         summarizedData = summarizedData.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
-        summarizedData.loc[summarizedData['upper_bound'] > 100.00, 'upper_bound'] = 100.00
-        summarizedData['lower_bound'].values[summarizedData['lower_bound'].values < 0.00] = 0.00
-        
-        result_dict = summarizedData.to_dict('records')
-        cache_set(cache_key, result_dict, ttl=300)
-        return summarizedData
-        
+        ######
+        summarizedData.loc[summarizedData['upper_bound'] > 100.00, 'upper_bound'] = 100.00 # AF cant be higher than 100
+        summarizedData['lower_bound'].values[summarizedData['lower_bound'].values < 0.00] = 0.00 #AF cant be lower than 0
+        return(summarizedData)
     if bioMolecule == "RNA":
         neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
+        #data = data[neworder]
         t0 = pd.read_json(data)
         t0 = t0[neworder]
-        t0 = t0.applymap(lambda x: round(x, 0) if isinstance(x, (int, float)) else x)
+        t0 = t0.applymap(lambda x: round(x, 0) if isinstance(x, (int, float)) else x) #when reading from json, floats are 15 decimal points long for some reason.... need to round
+        #get only data with cleared samples
         summarizedData = t0[t0['samplename'].isin(cleared_samples)]
+        #recalculate means, sd and limits
         summarizedData['sd'] = summarizedData.groupby('variant').norm_count.transform('std')
         summarizedData['upper_bound'] = summarizedData['norm_count'] + limit*(summarizedData['sd'])
         summarizedData['lower_bound'] = summarizedData['norm_count'] - limit*(summarizedData['sd'])
@@ -263,39 +190,41 @@ def getSummary(data, bioMolecule):
         summarizedData = summarizedData[neworder1]
         summarizedData = summarizedData[~summarizedData['variant'].str.startswith('chr')]
         summarizedData = summarizedData.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
+        ######
         summarizedData['lower_bound'].values[summarizedData['lower_bound'].values < 0] = 0
-        
-        result_dict = summarizedData.to_dict('records')
-        cache_set(cache_key, result_dict, ttl=300)
-        return summarizedData
+        return(summarizedData)
 
-# Create the app with Redis caching
+
+
+#create the app layout
 app = dash.Dash(__name__)
 server = app.server
 
-# Configure Flask-Caching with Redis (fallback to simple cache if Redis unavailable)
-try:
-    cache = Cache(app.server, config={
-        'CACHE_TYPE': 'redis',
-        'CACHE_REDIS_URL': os.getenv('REDIS_URL', 'redis://redis:6379/0'),
-        'CACHE_DEFAULT_TIMEOUT': 300
-    })
-except:
-    cache = Cache(app.server, config={
-        'CACHE_TYPE': 'simple',
-        'CACHE_DEFAULT_TIMEOUT': 300
-    })
+######################
+#VALID_USERNAME_PASSWORD_PAIRS = { # login credentials
+#    'ABC': 'XYZ'
+#}
 
-#defining the layout (same as original)
+#auth = dash_auth.BasicAuth(
+#    app,
+#    VALID_USERNAME_PASSWORD_PAIRS
+#)
+#Avoid global variables, instead store in empty divs
+
+
+#defining the layout
 def serve_layout():
+    #Customizable thresholds
     sig_tab = pd.DataFrame({'Field':["QC Blanks","Coverage > 800","Uniformity > 80%","Lot Number","PhD", "MD"],'Value':["PASS  /  FAIL","PASS  /  FAIL","PASS  /  FAIL","___________________________________________________" ,"___________________________________________________","___________________________________________________"]})
     return html.Div(children=[
     dcc.Store(id='memory-output'),
+    #First is a title 
+    #Then a datatable with selectable rows for later graphs with callback
     html.H1(children="MGDB control monitoring"),
     html.Br(),
-    dcc.Dropdown(id = 'drpdown'),
+    dcc.Dropdown(id = 'drpdown'), # options = [{'label': i, 'value': i} for i in t0['samplename'].unique()[-20:]], value = t0['samplename'].tolist()[-1]), # dropdown menu to pick sample for analysis
     html.H2(children="DNA Variants not passing QC verification:"),
-    dash_table.DataTable(id = 'table-fail',
+    dash_table.DataTable(id = 'table-fail', # table for small variants not passing QC
         columns=[
         {'name':'Variant', 'id':'variant', 'deletable': False},
         {'name':'Gene', 'id':'gene', 'deletable': False},
@@ -324,7 +253,7 @@ def serve_layout():
         }]),
     html.Br(),
     html.H2(children="RNA Variants not passing QC verification:"),
-    dash_table.DataTable(id = 'table-fail2',
+    dash_table.DataTable(id = 'table-fail2', #this is the RNA-based summary of only variants not passing QC
         columns=[
         {'name':'Variant', 'id':'variant', 'deletable': False},
         {'name':'Gene', 'id':'gene', 'deletable': False},
@@ -352,14 +281,17 @@ def serve_layout():
             'color':'white'
         }]),
     html.Br(),
-    dash_table.DataTable(id = 'table-signature', data=sig_tab.to_dict('records'), css=[{
+    dash_table.DataTable(id = 'table-signature', data=sig_tab.to_dict('records'), css=[{ # table with signature lines, etc. for printing. 
             'selector': 'tr:first-child',
-            'rule': 'display: None;'
+            'rule':'''
+                    display: None;
+            '''
         }]),
     html.Br(),
+    # add the conditionnal styling to allele frequencies that are out-of-bounds (3SD)
     html.Div(id='output-container-button2',children='No comments to display'),
     html.Br(),
-    html.Div(dcc.Input(id='input-box', type='text')),
+    html.Div(dcc.Input(id='input-box', type='text')), #input box for comments
     html.Button('Submit Comment', id='button'),
     html.Br(),
     html.Button('Validate Sample - Include in DB', id='button3'),
@@ -397,7 +329,7 @@ def serve_layout():
         }]),
     html.Br(),
     html.H2(children="Complete table of run info for current sample (RNA variants)"),
-    dash_table.DataTable(id = 'table-3',
+    dash_table.DataTable(id = 'table-3', # for RNA
         columns=[
         {'name':'Variant', 'id':'variant', 'deletable': False},
         {'name':'Gene', 'id':'gene', 'deletable': False},
@@ -425,6 +357,8 @@ def serve_layout():
             'color':'white'
         }]),
     html.Br(),
+    #dcc.Graph(id = 'subplot-div', style={'width': '250vh'}),
+    html.Br(),
     html.H2(children="Levey-Jennings Graph for entire series (DNA variants)"),
     dash_table.DataTable(
     id='table',
@@ -438,6 +372,8 @@ def serve_layout():
         {'name':'Coverage', 'id':'coverage', 'deletable': False},
         {'name':'Number of positive runs', 'id':'samplename', 'deletable': False}
     ],
+    #This to_dict function adds a level to column headers, making them tuples if not dropped after using groupby. See above.
+    #data=t1.to_dict('records'),
     editable=False,
     filter_action="native",
     sort_action="native",
@@ -468,6 +404,8 @@ def serve_layout():
         {'name':'Coverage', 'id':'coverage', 'deletable': False},
         {'name':'Number of positive runs', 'id':'samplename', 'deletable': False}
     ],
+    #This to_dict function adds a level to column headers, making them tuples if not dropped after using groupby. See above.
+    #data=t2.to_dict('records'),
     editable=False,
     filter_action="native",
     sort_action="native",
@@ -485,7 +423,7 @@ def serve_layout():
     html.Div(id='LJ_graphRNA'),
     dcc.Graph(id = 'LJ_graphRNA2'),
     html.Br(),
-    html.Button('Delete', id='button2'),
+    html.Button('Delete', id='button2'), # Delete will add to a list of exclusions that filters out any unwanted data when reading in from SQL
     html.Br(),
     html.Div(id='dummy1'),
     html.Br(),
@@ -497,18 +435,27 @@ def serve_layout():
 
 app.layout = serve_layout
 
-# All callback functions (same as original but with optimized data flow)
+
+
+
+#Callbacks and functions
+
+#Store the data in a dummy div
 @app.callback(
-    Output('memory-output', 'data'),
+    ServersideOutput('memory-output', 'data'),
     Input('dummy', 'id'))
+
 def dcc_store(dummy):
     t = get_sql()
     return t.to_json()
+
+#Make the dropdown menu
 
 @app.callback(
     Output("drpdown", "options"),
     Output("drpdown", "value"),
     Input('memory-output', 'data'))
+
 def make_drpdown(data):
     neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
     data = pd.read_json(data)
@@ -518,24 +465,33 @@ def make_drpdown(data):
     value = data['samplename'].tolist()[-1]
     return options, value
 
+# Make the tables with all data from validated samples
+
 @app.callback(
     Output('table', 'data'),
     Input('memory-output', 'data'))
+
 def prep_table1(data):
     data = getSummary(data, "DNA")
     return data.to_dict('records')
 
+#Same, but for RNA
+
 @app.callback(
     Output('tableR', 'data'),
     Input('memory-output', 'data'))
+
 def prep_table2(data):
     data = getSummary(data, "RNA")
     return data.to_dict('records')
 
+
+#Function for printing the active variant on the screen
 @app.callback(
     Output(component_id='LJ_graph', component_property='children'),
     Input('table', 'data'),
     Input('table', 'selected_rows'))
+
 def print_selection(data, selected_rows):
     if selected_rows is None:
         selected_rows = []
@@ -543,18 +499,21 @@ def print_selection(data, selected_rows):
     out = str(df)
     return ''.join(out) if df else "No Variant Selected"
 
+#now for the first LJ graph
+
 @app.callback(
-    Output('LJ_graph2', 'figure'),
-    Input('table','data'),
-    Input('table','selected_rows'),
-    Input('memory-output', 'data'))
+    Output('LJ_graph2', 'figure'), #outputs to plotly figure
+    Input('table','data'), # gets data from the table
+    Input('table','selected_rows'), # gets the seleccted active row
+    Input('memory-output', 'data')) #Gets the stored empty-div dataframe
+
 def update_graph(data, selected_rows, data2):
     cleared_samples = []
-    with open('/dash-files/cleared.tsv') as f:
+    with open('/dash-files/cleared.tsv') as f: # get the cleared samples
         include = f.read().splitlines()
         cleared_samples = include
     limit = None
-    with open('/dash-files/config.txt') as f:
+    with open('/dash-files/config.txt') as f: # get the cleared samples
         vals = f.read().splitlines()
         limit = int(vals[4])
 
@@ -564,13 +523,13 @@ def update_graph(data, selected_rows, data2):
     data2 = data2[neworder]
     if selected_rows is None:
         selected_rows = []
-    var = data[selected_rows[0]]['variant'] if selected_rows else "chr12_25398281_C_T_snp_1"
+    var = data[selected_rows[0]]['variant'] if selected_rows else "chr12_25398281_C_T_snp_1" #default selection
     data_long = data2.applymap(lambda x: round(x, 4) if isinstance(x, (int, float)) else x)
-    sset = pd.DataFrame(data_long['samplename'].unique(), columns=['samplename'])
-    is_var = data_long['variant'] == var
+    sset = pd.DataFrame(data_long['samplename'].unique(), columns=['samplename']) # required to get null value samples
+    is_var = data_long['variant'] == var #get only the active variant
     filt_dat = data_long[is_var]
-    value_vect = []
-    for index, row in sset.iterrows():
+    value_vect = [] # stores the sample-wise values for Afreq to check if missing samples.
+    for index, row in sset.iterrows(): #find only the non-null AFs
         label = row['samplename']
         if label in filt_dat['samplename'].tolist():
             a = filt_dat.loc[filt_dat['samplename']==label, 'afreq'].values[0]
@@ -578,21 +537,21 @@ def update_graph(data, selected_rows, data2):
         else:
             value_vect.append(0)
     sset['afreq'] = value_vect
-    mn = sset['afreq'].tolist()
+    mn = sset['afreq'].tolist() # convert the AFs to a list
     mn1 = []
-    for i in mn:
+    for i in mn: #need this try to catch instances of first-samples being zero AF runs...
         try:
             mn1.append(i if i else mn1[-1])
-        except:
+        except: # if is the case, then use veryvery small number in lieu of 0
             mn1.append(0.00000001)
-    mn2 = [st.mean(mn1[0:s]) for s in range(1,len(list(set(cleared_samples))))]
+    mn2 = [st.mean(mn1[0:s]) for s in range(1,len(list(set(cleared_samples))))] # calculate the rolling average
     mn2.insert(0, mn[0])
     diff = len(mn)-len(cleared_samples)
     if diff > 0:
         ex = [mn2[-1]] * diff
         mn2.extend(ex)
     mn3 = [num for num in mn if num]
-    sd1 = [np.std(mn1[0:s], ddof=1) for s in range(1,len(list(set(cleared_samples))))]
+    sd1 = [np.std(mn1[0:s], ddof=1) for s in range(1,len(list(set(cleared_samples))))] # get the upper and lower limits for the graph (ommiting the last value and instead adding the n-1th value twice)
     sd1.insert(0, 0)
     sd1 = np.array(sd1)
     sd1[np.isnan(sd1)] = 0
@@ -601,8 +560,9 @@ def update_graph(data, selected_rows, data2):
     if diff2 > 0:
         ex2 = [sd1[-1]] * diff2
         sd1.extend(ex2)
-    sd2 = sd1
-    sdpos1 = np.array(mn2) + np.array(sd2)
+    ############
+    sd2 = sd1 #Need this to calculate the correct SD while plotting zeroes without having our 3SD intervals stop prematurely
+    sdpos1 = np.array(mn2) + np.array(sd2) # calculate limits for rolling average and dynamic SDs
     sdneg1 = np.array(mn2) - np.array(sd2)
     sdpos2 = np.array(mn2) + limit*(np.array(sd2))
     sdneg2 = np.array(mn2) - limit*(np.array(sd2))
@@ -618,10 +578,12 @@ def update_graph(data, selected_rows, data2):
     figure.update_xaxes(showticklabels=False)
     return figure
 
+#Function for printing the active variant on the screen for RNA
 @app.callback(
     Output(component_id='LJ_graphRNA', component_property='children'),
     Input('tableR', 'data'),
     Input('tableR', 'selected_rows'))
+
 def print_selection2(data, selected_rows):
     if selected_rows is None:
         selected_rows = []
@@ -629,19 +591,22 @@ def print_selection2(data, selected_rows):
     out = str(df)
     return ''.join(out) if df else "No Variant Selected"
 
+#Second graph
+
 @app.callback(
-    Output('LJ_graphRNA2', 'figure'),
-    Input('tableR','data'),
-    Input('tableR','selected_rows'),
-    Input('memory-output', 'data'))
+    Output('LJ_graphRNA2', 'figure'), #outputs to plotly figure
+    Input('tableR','data'), # gets data from the table
+    Input('tableR','selected_rows'), # gets the seleccted active row
+    Input('memory-output', 'data')) #Gets the stored empty-div dataframe
+
 def update_graph2(data, selected_rows, data2):
     neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
     cleared_samples = []
-    with open('/dash-files/cleared.tsv') as f:
+    with open('/dash-files/cleared.tsv') as f: # get the cleared samples
         include = f.read().splitlines()
         cleared_samples = include
     limit = None
-    with open('/dash-files/config.txt') as f:
+    with open('/dash-files/config.txt') as f: # get the cleared samples
         vals = f.read().splitlines()
         limit = int(vals[4])
     data2 = pd.read_json(data2)
@@ -649,12 +614,12 @@ def update_graph2(data, selected_rows, data2):
     data2 = data2[neworder]
     if selected_rows is None:
         selected_rows = []
-    var = data[selected_rows[0]]['variant'] if selected_rows else "BCR(14)-ABL(2)"
+    var = data[selected_rows[0]]['variant'] if selected_rows else "BCR(14)-ABL(2)" #default selection
     data_long = data2.applymap(lambda x: round(x, 4) if isinstance(x, (int, float)) else x)
-    sset = pd.DataFrame(data_long['samplename'].unique(), columns=['samplename'])
-    is_var = data_long['variant'] == var
+    sset = pd.DataFrame(data_long['samplename'].unique(), columns=['samplename']) # required to get null value samples
+    is_var = data_long['variant'] == var #get only the active variant
     filt_dat = data_long[is_var]
-    value_vect = []
+    value_vect = [] # stores the sample-wise values for Afreq to check if missing samples.
     for index, row in sset.iterrows():
         label = row['samplename']
         if label in filt_dat['samplename'].tolist():
@@ -666,10 +631,10 @@ def update_graph2(data, selected_rows, data2):
 
     mn = sset['norm_count'].tolist()
     mn1 = []
-    for i in mn:
+    for i in mn: #need this try to catch instances of first-samples being zero AF runs...
         try:
             mn1.append(i if i else mn1[-1])
-        except:
+        except: # if is the case, then use veryvery small number in lieu of 0
             mn1.append(0.00000001)
     mn2 = [st.mean(mn1[0:s]) for s in range(1,len(list(set(cleared_samples))))]
     mn2.insert(0, mn[0])
@@ -678,7 +643,7 @@ def update_graph2(data, selected_rows, data2):
         ex = [mn2[-1]] * diff
         mn2.extend(ex)
     mn3 = [num for num in mn if num]
-    sd1 = [np.std(mn1[0:s], ddof=1) for s in range(1,len(list(set(cleared_samples))))]
+    sd1 = [np.std(mn1[0:s], ddof=1) for s in range(1,len(list(set(cleared_samples))))] # get the upper and lower limits for the graph (ommiting the last value and instead adding the n-1th value twice)
     diff2 = len(mn1)-len(cleared_samples)
     sd1.insert(0, 0)
     sd1 = np.array(sd1)
@@ -701,15 +666,19 @@ def update_graph2(data, selected_rows, data2):
     figure.update_xaxes(showticklabels=False)
     return figure
 
+
+#The table describing all DNA variants for a selected run below the sample failures description 
+
 @app.callback(
-    Output('table-2','data'),
-    Input('drpdown','value'),
-    Input('memory-output', 'data'))
+    Output('table-2','data'), #plot table
+    Input('drpdown','value'), #get active sample from dropdown
+    Input('memory-output', 'data')) # get table 2 from dummy div
+
 def update_table2(sel_value, data):
     neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
     t0 = pd.read_json(data).copy()
     t0 = t0[neworder]
-    t0 = t0.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
+    t0 = t0.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x) #when reading from json, floats are 15 decimal points long for some reason.... need to round
     filt_dat = t0[t0['variant'].str.startswith('chr')]
     t1 = getSummary(data, "DNA")
     filt_dat = filt_dat.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
@@ -722,20 +691,24 @@ def update_table2(sel_value, data):
     filt_dat['sd']= t1['sd'].tolist()
     filt_dat = filt_dat.sort_values('variant')
     filt_dat['upper_bound'] = t1['upper_bound'].tolist()
-    filt_dat.loc[filt_dat['upper_bound'] > 100.00, 'upper_bound'] = 100.00
+    filt_dat.loc[filt_dat['upper_bound'] > 100.00, 'upper_bound'] = 100.00 # AF cant be higher than 100
     filt_dat['lower_bound'] = t1['lower_bound'].tolist()
-    filt_dat['lower_bound'].values[filt_dat['lower_bound'].values < 0.00] = 0.00
+    filt_dat['lower_bound'].values[filt_dat['lower_bound'].values < 0.00] = 0.00 #AF cant be lower than 0
     return filt_dat.to_dict('records')
 
+#The table describing all RNA variants for a selected run below the sample failures description
+
 @app.callback(
-    Output('table-3','data'),
-    Input('drpdown','value'),
-    Input('memory-output', 'data'))
-def update_table3(sel_value, data):
+    Output('table-3','data'), #plot table
+    Input('drpdown','value'), #get active sample from dropdown
+    Input('memory-output', 'data')) #get data from dummy div
+
+def update_table3(sel_value, data):  #too slow and need a store for the raw sql call - this needs the same SD tweaks as the fail1 table
     neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
+    #data = data[neworder]
     t0 = pd.read_json(data)
     t0 = t0[neworder]
-    t0 = t0.applymap(lambda x: round(x, 0) if isinstance(x, (int, float)) else x)
+    t0 = t0.applymap(lambda x: round(x, 0) if isinstance(x, (int, float)) else x) #when reading from json, floats are 15 decimal points long for some reason.... need to round
     filt_dat = t0[~t0['variant'].str.startswith('chr')]
     t2 = getSummary(data, "RNA")
     filt_dat = filt_dat.applymap(lambda x: round(x, 0) if isinstance(x, (int, float)) else x)
@@ -744,18 +717,24 @@ def update_table3(sel_value, data):
     filt_dat['sd']= t2['sd'].tolist()
     filt_dat['upper_bound'] = t2['upper_bound'].tolist()
     filt_dat['lower_bound'] = t2['lower_bound'].tolist()
-    filt_dat['lower_bound'].values[filt_dat['lower_bound'].values < 0] = 0
+    filt_dat['lower_bound'].values[filt_dat['lower_bound'].values < 0] = 0 #counts cant be lower than 0
     return filt_dat.to_dict('records')
 
+
+
+#For the summary tables at top that show sample failure
+
 @app.callback(
-    Output('table-fail','data'),
-    Input('drpdown','value'),
-    Input('memory-output', 'data'))
-def update_fail1(sel_value, data):
+    Output('table-fail','data'), #plot table
+    Input('drpdown','value'), #get active sample from dropdown
+    Input('memory-output', 'data')) #get data from dummy div
+
+
+def update_fail1(sel_value, data): ##### Table at the very top showing failures in current sample. Defaults to most recent sample.
     neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
     t0 = pd.read_json(data).copy()
     t0 = t0[neworder]
-    t0 = t0.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
+    t0 = t0.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x) #when reading from json, floats are 15 decimal points long for some reason.... need to round
     filt_dat = t0[t0['variant'].str.startswith('chr')]
     t1 = getSummary(data, "DNA")
     filt_dat = filt_dat.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
@@ -768,21 +747,24 @@ def update_fail1(sel_value, data):
     filt_dat = filt_dat.sort_values('variant')
     filt_dat['sd']= t1['sd'].tolist()
     filt_dat['upper_bound'] = t1['upper_bound'].tolist()
-    filt_dat.loc[filt_dat['upper_bound'] > 100.00, 'upper_bound'] = 100.00
+    filt_dat.loc[filt_dat['upper_bound'] > 100.00, 'upper_bound'] = 100.00 # AF cant be higher than 100
     filt_dat['lower_bound'] = t1['lower_bound'].tolist()
-    filt_dat['lower_bound'].values[filt_dat['lower_bound'].values < 0.00] = 0.00
+    filt_dat['lower_bound'].values[filt_dat['lower_bound'].values < 0.00] = 0.00 #AF cant be lower than 0
     filt_dat = filt_dat.loc[(filt_dat['afreq']<filt_dat['lower_bound'])|(filt_dat['afreq']>filt_dat['upper_bound'])]
     return filt_dat.to_dict('records')
 
 @app.callback(
-    Output('table-fail2','data'),
-    Input('drpdown','value'),
-    Input('memory-output', 'data'))
-def update_fail2(sel_value, data):
+    Output('table-fail2','data'), #plot table
+    Input('drpdown','value'), #get active sample from dropdown
+    Input('memory-output', 'data')) #get data from dummy div
+
+
+def update_fail2(sel_value, data): # table at top for RNA
     neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
+    #data = data[neworder]
     t0 = pd.read_json(data)
     t0 = t0[neworder]
-    t0 = t0.applymap(lambda x: round(x, 0) if isinstance(x, (int, float)) else x)
+    t0 = t0.applymap(lambda x: round(x, 0) if isinstance(x, (int, float)) else x) #when reading from json, floats are 15 decimal points long for some reason.... need to round
     filt_dat = t0[~t0['variant'].str.startswith('chr')]
     t2 = getSummary(data, "RNA")
     filt_dat = filt_dat.applymap(lambda x: round(x, 0) if isinstance(x, (int, float)) else x)
@@ -791,66 +773,88 @@ def update_fail2(sel_value, data):
     filt_dat['sd']= t2['sd'].tolist()
     filt_dat['upper_bound'] = t2['upper_bound'].tolist()
     filt_dat['lower_bound'] = t2['lower_bound'].tolist()
-    filt_dat['lower_bound'].values[filt_dat['lower_bound'].values < 0] = 0
+    filt_dat['lower_bound'].values[filt_dat['lower_bound'].values < 0] = 0 #counts cant be lower than 0
     filt_dat = filt_dat.loc[(filt_dat['norm_count']<filt_dat['lower_bound'])|(filt_dat['norm_count']>filt_dat['upper_bound'])]
     return filt_dat.to_dict('records')
 
+
+
+
+
+#Read the comments file and display the notes for a given sample
+
 @app.callback(
     Output('output-container-button2', 'children'),
-    Input('drpdown','value'))
+    Input('drpdown','value')) #this comment manager takes the dropdown value as input. 
+
 def display_notes(value):
-    override = pd.read_csv('/dash-files/comments.txt', sep='\t', names=['sample','time','comment'])
-    filt_or = override.loc[override['sample'] == value]
+    override = pd.read_csv('/dash-files/comments.txt', sep='\t', names=['sample','time','comment']) #read the comments file to obtain any current comments on the sample.
+    filt_or = override.loc[override['sample'] == value] #find the selected dropdown value in the frame
     try:
         slist = filt_or[['time','comment']].values.flatten().tolist()
         print(slist)
         slist = list(filter(('nan').__ne__, slist))
-        return '    |    '.join(slist)
+        return '    |    '.join(slist) #print comments
         return slist
     except:
         return 'No comments'
 
+#Write comments in the comment box and submit them to save the notes for the current sample in dropdown
+
 @app.callback(
-    Output("dummy1", "children"),
+    Output("dummy1", "children"), #needed for function, output really does to text file
     Input('button','n_clicks'),
-    State('drpdown','value'),
+    State('drpdown','value'), #see above, comment manager takes dropdown as input
     State('input-box', 'value'),prevent_initial_call=True)
+
 def update_notes(n_clicks, drpdown ,input_box):
     now = datetime.now().date()
-    f = open('/dash-files/comments.txt', 'a')
+    f = open('/dash-files/comments.txt', 'a') # file to add comments to
     writer = csv.writer(f, delimiter = "\t")
-    row = [drpdown, now, input_box]
+    row = [drpdown, now, input_box] #row has the sample ID, the date and comments. 
     writer.writerow(row)
     f.close()
     return None
 
+#DELETE button on screen will remove the selected dropdown sample from consideration in calculating statistics, refresh page to update graphs. 
+
 @app.callback(
-    Output("dummy2", "children"),
+    Output("dummy2", "children"), #needed for function, output really does to text file
     Input('button2','n_clicks'),
-    State('drpdown','value'),prevent_initial_call=True)
+    State('drpdown','value'),prevent_initial_call=True) #see above, comment manager takes dropdown as input
+
 def remove_outlier(n_clicks, drpdown):
+    #insert function to delete and refresh here
     f = open('/dash-files/exclusions.tsv', 'a')
     writer = csv.writer(f, delimiter = "\t")
     writer.writerow([drpdown])
     f.close()
     return None
 
+#The Calidate button will validate the current sample, and if not already in the list of cleared samples will now be included in statistics, thus adjusting SDs and Means
+
+
 @app.callback(
-    Output("dummy3", "children"),
+    Output("dummy3", "children"), #needed for function, output really does to text file
     Input('button3','n_clicks'),
-    State('drpdown','value'),prevent_initial_call=True)
+    State('drpdown','value'),prevent_initial_call=True) #see above, comment manager takes dropdown as input
+
 def clear(n_clicks, drpdown):
+    #insert function to delete and refresh here
     f = open('/dash-files/cleared.tsv', 'a')
     writer = csv.writer(f, delimiter = "\t")
     writer.writerow([drpdown])
     f.close()
     now = datetime.now().date()
-    f2 = open('/dash-files/comments.txt', 'a')
+    f2 = open('/dash-files/comments.txt', 'a') # file to add comments to
     writer = csv.writer(f2, delimiter = "\t")
-    row = [drpdown, now, "Sample was Cleared"]
+    row = [drpdown, now, "Sample was Cleared"] #row has the sample ID, the date and comments.
+    #print(row)
     writer.writerow(row)
     f2.close()
     return None
 
+#run on this server with IP
+
 if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0', port=8090)
+    app.run_server(debug=False, host='0.0.0.0', port=8090)
