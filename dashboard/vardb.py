@@ -26,6 +26,7 @@ import json
 import hashlib
 import functools
 from collections import defaultdict
+from io import StringIO
 
 # Initialize Redis connection
 def get_redis_client():
@@ -480,21 +481,45 @@ def getSummary(data, bioMolecule):
         vals = f.read().splitlines()
         limit = int(vals[4])
     
+    # Helper function to get mode for strings (replacement for scipy.stats.mode)
+    def get_mode(series):
+        """Get most common value from series, handling both numeric and string data"""
+        if len(series) == 0:
+            return None
+        mode_result = series.mode()
+        return mode_result.iloc[0] if len(mode_result) > 0 else series.iloc[0]
+    
     if bioMolecule == "DNA":
         neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
-        t0 = pd.read_json(data)
+        from io import StringIO
+        t0 = pd.read_json(StringIO(data)) if isinstance(data, str) else pd.read_json(data)
         t0 = t0[neworder]
-        t0 = t0.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
+        t0 = t0.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
         summarizedData = t0[t0['samplename'].isin(cleared_samples)]
+        
+        if len(summarizedData) == 0:
+            # Return empty DataFrame with correct structure
+            return pd.DataFrame(columns=neworder)
+        
         summarizedData['sd'] = summarizedData.groupby('variant').afreq.transform('std')
         summarizedData['upper_bound'] = summarizedData['afreq'] + limit*(summarizedData['sd'])
         summarizedData['lower_bound'] = summarizedData['afreq'] - limit*(summarizedData['sd'])
-        summarizedData = summarizedData.groupby('variant', as_index=False).agg({'samplename': 'nunique', 'coverage': ['mean'], 'afreq': ['mean'], 'trname': lambda x: scipy.stats.mode(x)[0], 'HGVSc': lambda x: scipy.stats.mode(x)[0], 'HGVSp':lambda x: scipy.stats.mode(x)[0], 'gene': lambda x: scipy.stats.mode(x)[0], 'sd': ['mean'], 'upper_bound': ['mean'], 'lower_bound':['mean']})
-        summarizedData.columns = summarizedData.columns.droplevel(1)
+        summarizedData = summarizedData.groupby('variant', as_index=False).agg({
+            'samplename': 'nunique', 
+            'coverage': 'mean', 
+            'afreq': 'mean', 
+            'trname': get_mode, 
+            'HGVSc': get_mode, 
+            'HGVSp': get_mode, 
+            'gene': get_mode, 
+            'sd': 'mean', 
+            'upper_bound': 'mean', 
+            'lower_bound': 'mean'
+        })
         neworder1 = ['variant','gene','afreq','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
         summarizedData = summarizedData[neworder1]
         summarizedData = summarizedData[summarizedData['variant'].str.startswith('chr')]
-        summarizedData = summarizedData.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
+        summarizedData = summarizedData.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
         summarizedData.loc[summarizedData['upper_bound'] > 100.00, 'upper_bound'] = 100.00
         summarizedData['lower_bound'].values[summarizedData['lower_bound'].values < 0.00] = 0.00
         
@@ -504,19 +529,35 @@ def getSummary(data, bioMolecule):
         
     if bioMolecule == "RNA":
         neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
-        t0 = pd.read_json(data)
+        from io import StringIO
+        t0 = pd.read_json(StringIO(data)) if isinstance(data, str) else pd.read_json(data)
         t0 = t0[neworder]
-        t0 = t0.applymap(lambda x: round(x, 0) if isinstance(x, (int, float)) else x)
+        t0 = t0.map(lambda x: round(x, 0) if isinstance(x, (int, float)) else x)
         summarizedData = t0[t0['samplename'].isin(cleared_samples)]
+        
+        if len(summarizedData) == 0:
+            # Return empty DataFrame with correct structure
+            return pd.DataFrame(columns=neworder)
+        
         summarizedData['sd'] = summarizedData.groupby('variant').norm_count.transform('std')
         summarizedData['upper_bound'] = summarizedData['norm_count'] + limit*(summarizedData['sd'])
         summarizedData['lower_bound'] = summarizedData['norm_count'] - limit*(summarizedData['sd'])
-        summarizedData = summarizedData.groupby('variant', as_index=False).agg({'samplename': 'nunique', 'coverage': ['mean'], 'norm_count': ['mean'], 'trname': lambda x: scipy.stats.mode(x)[0], 'HGVSc': lambda x: scipy.stats.mode(x)[0], 'HGVSp':lambda x: scipy.stats.mode(x)[0], 'gene': lambda x: scipy.stats.mode(x)[0], 'sd': ['mean'], 'upper_bound': ['mean'], 'lower_bound':['mean']})
-        summarizedData.columns = summarizedData.columns.droplevel(1)
+        summarizedData = summarizedData.groupby('variant', as_index=False).agg({
+            'samplename': 'nunique', 
+            'coverage': 'mean', 
+            'norm_count': 'mean', 
+            'trname': get_mode, 
+            'HGVSc': get_mode, 
+            'HGVSp': get_mode, 
+            'gene': get_mode, 
+            'sd': 'mean', 
+            'upper_bound': 'mean', 
+            'lower_bound': 'mean'
+        })
         neworder1 = ['variant','gene','norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
         summarizedData = summarizedData[neworder1]
         summarizedData = summarizedData[~summarizedData['variant'].str.startswith('chr')]
-        summarizedData = summarizedData.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
+        summarizedData = summarizedData.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
         summarizedData['lower_bound'].values[summarizedData['lower_bound'].values < 0] = 0
         
         result_dict = summarizedData.to_dict('records')
@@ -778,10 +819,11 @@ def dcc_store(dummy):
 def make_drpdown(data):
     if data is None:
         return [], None
+    from io import StringIO
     neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
-    data = pd.read_json(data)
+    data = pd.read_json(StringIO(data)) if isinstance(data, str) else pd.read_json(data)
     data = data[neworder]
-    data = data.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
+    data = data.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
     options = [{'label': i, 'value': i} for i in data['samplename'].unique()[-20:]]
     value = data['samplename'].tolist()[-1]
     return options, value
@@ -828,14 +870,15 @@ def update_graph(data, selected_rows, data2):
         vals = f.read().splitlines()
         limit = int(vals[4])
 
+    from io import StringIO
     neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
-    data2 = pd.read_json(data2)
-    data2 = data2.applymap(lambda x: round(x, 4) if isinstance(x, (int, float)) else x)
+    data2 = pd.read_json(StringIO(data2)) if isinstance(data2, str) else pd.read_json(data2)
+    data2 = data2.map(lambda x: round(x, 4) if isinstance(x, (int, float)) else x)
     data2 = data2[neworder]
     if selected_rows is None:
         selected_rows = []
     var = data[selected_rows[0]]['variant'] if selected_rows else "chr12_25398281_C_T_snp_1"
-    data_long = data2.applymap(lambda x: round(x, 4) if isinstance(x, (int, float)) else x)
+    data_long = data2.map(lambda x: round(x, 4) if isinstance(x, (int, float)) else x)
     sset = pd.DataFrame(data_long['samplename'].unique(), columns=['samplename'])
     is_var = data_long['variant'] == var
     filt_dat = data_long[is_var]
@@ -907,6 +950,7 @@ def print_selection2(data, selected_rows):
 def update_graph2(data, selected_rows, data2):
     if data2 is None:
         return {}
+    from io import StringIO
     neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
     cleared_samples = []
     with open('/dash-files/cleared.tsv') as f:
@@ -916,13 +960,13 @@ def update_graph2(data, selected_rows, data2):
     with open('/dash-files/config.txt') as f:
         vals = f.read().splitlines()
         limit = int(vals[4])
-    data2 = pd.read_json(data2)
-    data2 = data2.applymap(lambda x: round(x, 4) if isinstance(x, (int, float)) else x)
+    data2 = pd.read_json(StringIO(data2)) if isinstance(data2, str) else pd.read_json(data2)
+    data2 = data2.map(lambda x: round(x, 4) if isinstance(x, (int, float)) else x)
     data2 = data2[neworder]
     if selected_rows is None:
         selected_rows = []
     var = data[selected_rows[0]]['variant'] if selected_rows else "BCR(14)-ABL(2)"
-    data_long = data2.applymap(lambda x: round(x, 4) if isinstance(x, (int, float)) else x)
+    data_long = data2.map(lambda x: round(x, 4) if isinstance(x, (int, float)) else x)
     sset = pd.DataFrame(data_long['samplename'].unique(), columns=['samplename'])
     is_var = data_long['variant'] == var
     filt_dat = data_long[is_var]
@@ -1026,19 +1070,25 @@ def update_table3_optimized(sel_value, data, page_current, page_size):
 def update_fail1(sel_value, data):
     if data is None:
         return []
+    from io import StringIO
     neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
-    t0 = pd.read_json(data).copy()
+    t0 = pd.read_json(StringIO(data)) if isinstance(data, str) else pd.read_json(data)
+    t0 = t0.copy()
     t0 = t0[neworder]
-    t0 = t0.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
+    t0 = t0.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
     filt_dat = t0[t0['variant'].str.startswith('chr')]
     t1 = getSummary(data, "DNA")
-    filt_dat = filt_dat.applymap(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
+    
+    if len(t1) == 0:
+        return []
+    
+    filt_dat = filt_dat.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
     filt_dat = filt_dat[filt_dat['samplename'] == sel_value].copy()
     missing = list(set(t1['variant'].tolist()) - set(filt_dat['variant'].tolist()))
     if missing:
         for var in missing:
-            new_row = {'variant':var,'gene':'','afreq':0,'norm_count':0,'sd':0,'upper_bound':0,'lower_bound':0,'coverage':0,'trname':'','HGVSc':'','HGVSp':'','samplename':sel_value}
-            filt_dat = filt_dat.append(new_row, ignore_index=True)
+            new_row = pd.DataFrame({'variant':[var],'gene':[''],'afreq':[0],'norm_count':[0],'sd':[0],'upper_bound':[0],'lower_bound':[0],'coverage':[0],'trname':[''],'HGVSc':[''],'HGVSp':[''],'samplename':[sel_value]})
+            filt_dat = pd.concat([filt_dat, new_row], ignore_index=True)
     filt_dat = filt_dat.sort_values('variant')
     filt_dat['sd']= t1['sd'].tolist()
     filt_dat['upper_bound'] = t1['upper_bound'].tolist()
@@ -1055,13 +1105,18 @@ def update_fail1(sel_value, data):
 def update_fail2(sel_value, data):
     if data is None:
         return []
+    from io import StringIO
     neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
-    t0 = pd.read_json(data)
+    t0 = pd.read_json(StringIO(data)) if isinstance(data, str) else pd.read_json(data)
     t0 = t0[neworder]
-    t0 = t0.applymap(lambda x: round(x, 0) if isinstance(x, (int, float)) else x)
+    t0 = t0.map(lambda x: round(x, 0) if isinstance(x, (int, float)) else x)
     filt_dat = t0[~t0['variant'].str.startswith('chr')]
     t2 = getSummary(data, "RNA")
-    filt_dat = filt_dat.applymap(lambda x: round(x, 0) if isinstance(x, (int, float)) else x)
+    
+    if len(t2) == 0:
+        return []
+    
+    filt_dat = filt_dat.map(lambda x: round(x, 0) if isinstance(x, (int, float)) else x)
     filt_dat = filt_dat[filt_dat['samplename'] == sel_value].copy()
     filt_dat = filt_dat.sort_values('variant')
     filt_dat['sd']= t2['sd'].tolist()
