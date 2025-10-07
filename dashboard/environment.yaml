@@ -16,5 +16,7 @@ dependencies:
   - redis-py
   - pydantic
   - pip
+  - sqlalchemy
   - pip:
     - PyVCF3==1.0.3
+    - pymysql
