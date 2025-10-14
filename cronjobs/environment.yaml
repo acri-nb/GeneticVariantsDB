@@ -1,26 +1,21 @@
-name: base
+name: docker-base
 channels:
-  - defaults
   - conda-forge
   - bioconda
+  - defaults
 dependencies:
-  - libcurl
-  - unzip
-  - conda-forge::unzip
-  - conda
   - python=3.9
-  - conda-env
-  - conda-build
-  - conda-verify
-  - _ipyw_jlab_nb_ext_conf
-  - anaconda==2021.11=py39_0
-  - anaconda-navigator
-  - navigator-updater
-  - dash
-  - mysql-connector-python
-  - pyvcf
-  - dash-auth
-  - conda-forge::flask-caching
-  - conda-forge::types-orjson
-  - conda-forge::dash-extensions
-prefix: /home/vitalitenb/anaconda3
+  - pip
+  - libcurl
+  - curl
+  - pip:
+    - pandas
+    - numpy
+    - dash
+    - mysql-connector-python
+    - PyVCF3==1.0.3
+    - pymysql
+    - flask-caching
+    - dash-auth
+    - dash-extensions
+    - requests

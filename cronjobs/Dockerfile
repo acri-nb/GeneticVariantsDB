@@ -11,14 +11,13 @@ COPY Add2VarDB.py .
 
 SHELL ["/bin/bash","--login","-c"]
 
+# Install system dependencies first
+RUN apt-get update && apt-get -y install --fix-missing cron && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 #Create env
-RUN conda env create --name docker-base --file=environment.yaml
+RUN conda env create --name docker-base --file=environment.yaml && conda clean -afy
 RUN echo "conda activate docker-base" >> ~/.bashrc
 SHELL ["/bin/bash","--login", "-c"]
-
-# Other required commands
-#RUN apt-get -y install nano
-RUN apt-get update && apt-get -y install cron
 
 # Give execution rights on the cron job
 RUN chmod 0644 /etc/cron.d/cron-dash
