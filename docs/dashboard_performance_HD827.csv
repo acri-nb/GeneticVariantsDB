@@ -1,0 +1,10 @@
+test,time_seconds,status,data_size_kb,callback_count,sample,cold_time_seconds,warm_time_seconds,improvement_percent,variants_processed
+initial_load,0.028,200.0,,,,,,,
+layout_load,0.011,,10.4,,,,,,
+dependencies_load,0.003,,,16.0,,,,,
+data_query_1,,,,,HD827_SSEQ_v3_675921f2-8bc9-4d5c-86ef-319b7d178e62,0.223,0.135,39.4,
+data_query_2,,,,,HD832_SSEQ_v3_14ea8d73-5b65-441c-8231-aed44be0d214,0.097,0.086,10.7,
+data_query_3,,,,,HD827_SSEQ_v10_d31ec588-3836-42f5-8c6b-e3114cb382b,0.111,0.103,7.1,
+stats_calculation_1,0.057,,,,HD827_SSEQ_v3_675921f2-8bc9-4d5c-86ef-319b7d178e62,,,,50.0
+stats_calculation_2,0.065,,,,HD832_SSEQ_v3_14ea8d73-5b65-441c-8231-aed44be0d214,,,,50.0
+stats_calculation_3,0.06,,,,HD827_SSEQ_v10_d31ec588-3836-42f5-8c6b-e3114cb382b,,,,50.0
