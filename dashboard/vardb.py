@@ -104,6 +104,108 @@ def get_data_hash(data):
         return hashlib.md5(pd.util.hash_pandas_object(data).values.tobytes()).hexdigest()
     return hashlib.md5(str(data).encode()).hexdigest()
 
+# Database connection helper
+def get_db_connection():
+    """Create and return a MySQL database connection"""
+    return mysql.connector.connect(
+        host='db',
+        user='usr',
+        password='usrpass',
+        database='vardb',
+        port=3306
+    )
+
+# Lazy loading functions for samples
+def get_all_sample_names():
+    """Récupère la liste de tous les échantillons avec données"""
+    cache_key = "all_sample_names"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+    
+    mydb = get_db_connection()
+    query = """
+        SELECT DISTINCT r.name 
+        FROM RunInfo r
+        INNER JOIN CallData c ON r.id = c.sample
+        ORDER BY r.name
+    """
+    df = pd.read_sql(query, mydb)
+    mydb.close()
+    
+    sample_names = df['name'].tolist()
+    cache_set(cache_key, sample_names, ttl=3600)  # Cache 1h
+    return sample_names
+
+def get_sample_data(sample_name):
+    """Charge les données pour un échantillon spécifique"""
+    if not sample_name:
+        return pd.DataFrame()
+    
+    cache_key = f"sample_data_{sample_name}"
+    cached = cache_get(cache_key)
+    if cached:
+        return pd.DataFrame(cached)
+    
+    mydb = get_db_connection()
+    
+    # Lire regions.txt et exclusions.tsv
+    try:
+        regions = pd.read_csv('/dash-files/regions.txt', header=None, names=['variant'])
+        regions_list = regions['variant'].tolist()
+    except:
+        regions_list = []
+    
+    try:
+        exclusions = pd.read_csv('/dash-files/exclusions.tsv', header=None, names=['sample'])
+        exclusions_list = exclusions['sample'].tolist()
+    except:
+        exclusions_list = []
+    
+    # Requête optimisée pour un seul échantillon
+    if not regions_list:
+        mydb.close()
+        return pd.DataFrame()
+    
+    placeholders = ','.join(['%s'] * len(regions_list))
+    query = f"""
+        SELECT 
+            v.name as variant,
+            g.name as gene,
+            c.afreq,
+            c.norm_count,
+            c.coverage,
+            t.name as trname,
+            h.HGVSc,
+            h.HGVSp,
+            r.name as samplename,
+            c.pass_filter,
+            r.filedate,
+            r.IonWF_version
+        FROM CallData c
+        INNER JOIN VarData v ON v.id = c.variant
+        INNER JOIN RunInfo r ON r.id = c.sample
+        LEFT JOIN HGVS h ON h.id = v.hgvs
+        LEFT JOIN Transcripts t ON t.id = h.transcript
+        LEFT JOIN Genes g ON g.id = v.gene
+        WHERE r.name = %s
+        AND v.name IN ({placeholders})
+    """
+    
+    params = [sample_name] + regions_list
+    df = pd.read_sql(query, mydb, params=params)
+    mydb.close()
+    
+    # Filtrer les exclusions
+    if exclusions_list and not df.empty:
+        df = df[~df['samplename'].isin(exclusions_list)]
+    
+    # Cache pour 10 minutes
+    if not df.empty:
+        cache_set(cache_key, df.to_dict('records'), ttl=600)
+    
+    return df
+
 # Factorized functions for common operations
 def process_sample_data(data, sample_value, biomolecule_type, filter_failing=False):
     """Common logic for processing sample data (DNA/RNA)"""
@@ -803,10 +905,12 @@ app.layout = serve_layout
     Output('memory-output', 'data'),
     Input('dummy', 'id'))
 def dcc_store(dummy):
+    """Charge toutes les données au démarrage"""
     try:
         t = get_sql()
         if t is None or t.empty:
             return None
+        print(f"Data loaded: {len(t)} rows, {t['samplename'].nunique()} unique samples")
         return t.to_json()
     except Exception as e:
         print(f"Error in dcc_store: {e}")
@@ -817,6 +921,7 @@ def dcc_store(dummy):
     Output("drpdown", "value"),
     Input('memory-output', 'data'))
 def make_drpdown(data):
+    """Extrait tous les échantillons des données (pas de limite)"""
     if data is None:
         return [], None
     from io import StringIO
@@ -824,8 +929,13 @@ def make_drpdown(data):
     data = pd.read_json(StringIO(data)) if isinstance(data, str) else pd.read_json(data)
     data = data[neworder]
     data = data.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
-    options = [{'label': i, 'value': i} for i in data['samplename'].unique()[-20:]]
+    
+    # MODIFICATION: Afficher TOUS les échantillons au lieu de seulement [-20:]
+    unique_samples = data['samplename'].unique()
+    options = [{'label': i, 'value': i} for i in unique_samples]  # Pas de limite !
     value = data['samplename'].tolist()[-1]
+    
+    print(f"Dropdown loaded with {len(options)} samples (all samples)")
     return options, value
 
 @app.callback(

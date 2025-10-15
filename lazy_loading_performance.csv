@@ -1,0 +1,8 @@
+test,description,time_seconds,sample_count,sample,cold_time_seconds,warm_time_seconds,improvement_percent,variant_count,uses_index
+load_sample_list,Chargement liste des échantillons,0.07,123.0,,,,,,
+lazy_load_1,Chargement lazy échantillon 1,,,24P530_PL_v1_9164cfbb-1fea-4c17-80a1-67ca22ea1d10,0.083,0.085,-3.1,11978.0,
+lazy_load_2,Chargement lazy échantillon 2,,,C01_R_HD827_SSEQ_v1_e32dcaec-da7a-43b7-9cf5-eedc75,0.082,0.081,2.1,12699.0,
+lazy_load_3,Chargement lazy échantillon 3,,,C02_R_HD827_SSEQ_v1_0fdc504f-2689-459f-abaa-86e56b,0.083,0.082,0.5,12695.0,
+lazy_load_4,Chargement lazy échantillon 4,,,C03_R_22PC1038_21P365_v1_6a3da249-c00e-4d0f-b2cb-c,0.075,0.079,-5.2,11188.0,
+lazy_load_5,Chargement lazy échantillon 5,,,C05_R_HD827_SSEQ_v1_1ff870e1-e49c-46c2-baaf-87753b,0.078,0.079,-2.2,12708.0,
+index_performance,Performance avec index,0.056,,,,,,,True
