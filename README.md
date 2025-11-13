@@ -59,13 +59,14 @@ mkdir -p /home/<user>/dash-files
 Copy required configuration and demo files to the newly created directory.
 
 ```bash
-cp GeneticVariantsDB/data/*.txt /home/<user>/dash-files
-cp GeneticVariantsDB/data/*.tsv /home/<user>/dash-files
+cp config/*.txt /home/<user>/dash-files/
+cp dash-files/*.txt /home/<user>/dash-files/
+cp dash-files/*.tsv /home/<user>/dash-files/
 ```
 3. Build the Docker images:
 
 ```bash
-docker-compose build
+docker compose build
 ```
 
 ### Configuration
@@ -85,8 +86,8 @@ sample_prefix
     * Set the `sample_prefix` to match your internal standards file names.
     * Adjust the standard deviation scalar as needed.
 
-3. **compose.yaml:** Edit `GeneticVariantsDB/DockerMode/compose.yaml`:
-    * Update all volume paths to point to `/home/<user>/dash-files`.
+3. **compose.yaml:** Edit `compose.yaml`:
+    * Update the volume source paths to point to your local `/home/<user>/dash-files` directory.
 
 4. **regions.txt:** After inserting your VCF data into the MySQL database, add the variant IDs of interest to `/home/<user>/dash-files/regions.txt`. (See "Usage - Data Management" below).
 
@@ -94,7 +95,7 @@ sample_prefix
 ### Running the Application
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 The app will be available at `http://[your-server-ip]:8090` in your web browser. Running the app may require elevated permissions.
@@ -102,12 +103,12 @@ The app will be available at `http://[your-server-ip]:8090` in your web browser.
 
 ### Sample Data and Testing
 
-1. Copy the sample VCF files to the cronjobs container:  *(Make sure the container is running. You may need to start it separately using `docker-compose up -d cronjobs`)*
+1. Copy the sample VCF files to the cronjobs container:  *(Make sure the container is running. You may need to start it separately using `docker compose up -d cronjobs`)*
 
 ```bash
 docker cp GeneticVariantsDB/data/*.vcf <container_name_of_cronjobs_container>:/app/
 ```
-Replace `<container_name_of_cronjobs_container>` with the name of your running cronjobs Docker container (check with `docker ps`).  If you are using the default docker-compose file, the container name would likely be something like  `geneticvariantsdb_cronjobs_1`.
+Replace `<container_name_of_cronjobs_container>` with the name of your running cronjobs Docker container (check with `docker ps`).  If you are using the default docker-compose file, the container name would likely be something like  `geneticvariantsdb-cronjobs-1`.
 
 2. Insert the sample data into the MySQL database: *Make sure to execute these commands inside the container.*
 
@@ -135,7 +136,7 @@ crontab -e
 
 
 ```bash
-*/15 * * * * docker exec -it geneticvariantsdb_cronjobs_1 conda run -n docker-base --no-capture-output python3 TFAPI_dwl.py
+*/15 * * * * docker exec -it geneticvariantsdb-cronjobs-1 conda run -n docker-base --no-capture-output python3 TFAPI_dwl.py
 ```
 
 This cron job runs every 15 minutes. Adjust the schedule as needed.
@@ -145,7 +146,7 @@ This cron job runs every 15 minutes. Adjust the schedule as needed.
 
 **Adding Variant IDs to regions.txt:**
 
-1. Retrieve variant IDs from the `vardb` database: *You can connect to the MySQL database using a MySQL client and the connection details from your `docker-compose.yml` file.*
+1. Retrieve variant IDs from the `vardb` database: *You can connect to the MySQL database using a MySQL client and the connection details from your `compose.yaml` file.*
 
 ```sql
 SELECT   
@@ -173,7 +174,7 @@ FROM
 * **Problem:** Dash app not accessible.
 * **Solution:** Verify Docker containers are running (`docker ps`), check server IP and port, and ensure no firewall is blocking access.
 * **Problem:** Issues inserting data into the database.
-* **Solution:** Verify database connection details in `docker-compose.yml` and ensure the database is running. Check the logs of the `cronjobs` container for error messages.
+* **Solution:** Verify database connection details in `compose.yaml` and ensure the database is running. Check the logs of the `cronjobs` container for error messages.
 
 ## Contributing
 
