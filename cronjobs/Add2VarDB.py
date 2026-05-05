@@ -28,7 +28,6 @@ import argparse
 #python3 ../DB_init_v2.py     !!! ONLY THE 1st TIME
 #for i in $(ls *.vcf); do python3 Add_to_DB_v2.py -i $i; done
 
-
 #Function to fix several bugs in the VCF header.
 def change_header(old_vcf):
     meta = []
@@ -556,7 +555,7 @@ def main():
     #password_file = '/secrets/db-password'
     args = _parse_args()
     #pf = open(password_file, 'r')
-    conn = mysql.connector.connect(host='db',user='usr',password='usrpass',database='vardb', port = 3306)
+    conn = mysql.connector.connect(host='db',user='usr',password='usrpass',database='OCA', port = 3306)
     ToolVerSanityCheck(conn, args.input)
     insert_Run_info(conn, args.input)
     insert_Var_types(conn, args.input)

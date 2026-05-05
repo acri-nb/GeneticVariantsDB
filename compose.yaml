@@ -1,81 +1,66 @@
+networks:
+  shared-net:
+    external: true
 services:
   dashboard:
     build:
       context: ./dashboard
       dockerfile: Dockerfile
     restart: always
+    networks:
+      - shared-net
     secrets:
       - db-password
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_started
     volumes:
       - db-data:/var/lib/mysql
       - type: bind
-        source: /Volumes/gth5TExt1/VS/IARC/HGDB/dash-files
+        source: /home/vitalitenb/dash-files3
         target: /dash-files
     environment:
-      - MYSQL_DATABASE=vardb
+      - MYSQL_DATABASE=OCA
       - MYSQL_USER=usr
       - MYSQL_PASSWORD=usrpass
       - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/db-password
       - MYSQL_ROOT_HOST=%
       - REDIS_URL=redis://redis:6379/0
     ports:
-      - 8090:8090
+      - 8091:8091
   
   cronjobs:
     build:
       context: ./cronjobs
       dockerfile: Dockerfile
-    depends_on:
-      db:
-        condition: service_healthy
+    restart: always
     secrets:
       - db-password
+    networks:
+      - shared-net
     volumes:
       - db-data:/var/lib/mysql
       - type: bind
-        source: /Volumes/gth5TExt1/VS/IARC/HGDB/dash-files
+        source: /home/vitalitenb/dash-files3
         target: /dash-files
     environment:
-      - MYSQL_DATABASE=vardb
+      - MYSQL_DATABASE=OCA
       - MYSQL_USER=usr
       - MYSQL_PASSWORD=usrpass
       - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/db-password
       - MYSQL_ROOT_HOST=%
-
-  db:
-    image: mysql/mysql-server
-    command: '--default-authentication-plugin=mysql_native_password'
-    restart: always
-    healthcheck:
-      test: ['CMD-SHELL', 'mysqladmin ping -h 127.0.0.1 --password="$$(cat /run/secrets/db-password)" --silent']
-      interval: 3s
-      retries: 5
-      start_period: 30s
-    secrets:
-      - db-password
-    volumes:
-      - db-data:/var/lib/mysql
-      - ./schema:/docker-entrypoint-initdb.d
-    environment:
-      - MYSQL_DATABASE=vardb
-      - MYSQL_USER=usr
-      - MYSQL_PASSWORD=usrpass
-      - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/db-password
-      - MYSQL_ROOT_HOST=%
-    expose:
-      - 3309
-    ports:
-      - 3309:3309
+      - TFAPI_IP_ADDR=${TFAPI_IP_ADDR:-10.111.243.18}
+      - TFAPI_SAMPLE_PREFIX=${TFAPI_SAMPLE_PREFIX:-HD}
+      - TFAPI_LOOKBACK_DAYS=${TFAPI_LOOKBACK_DAYS:-2}
+      - TFAPI_AUTH_TOKEN=${TFAPI_AUTH_TOKEN:-}
+      - TFAPI_AUTH_TOKEN_FILE=${TFAPI_AUTH_TOKEN_FILE:-/dash-files/tfapi_auth_token.txt}
 
   redis:
     image: redis:7-alpine
     restart: always
     command: redis-server --appendonly yes
+    networks:
+      - shared-net
     volumes:
       - redis-data:/data
     ports:
@@ -83,6 +68,8 @@ services:
 
 volumes:
   db-data:
+    external: true
+    name: oca_db-data
   redis-data:
   #comments:
   #exclusions:

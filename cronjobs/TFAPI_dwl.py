@@ -1,102 +1,200 @@
 #!/usr/bin/env python3
 import glob
+import os
+import shutil
 import subprocess
-import time
 from datetime import datetime, timedelta
-from csv import reader
+
 import requests
 import urllib3
-import sys
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-#open config file to read ip address, user and pass for ThermoFisher API
-with open('/dash-files/config.txt') as f:
-    config = f.read().splitlines()
+CONFIG_PATH = os.getenv("TFAPI_CONFIG_PATH", "/dash-files/config.txt")
+TOKEN_PATH = os.getenv("TFAPI_AUTH_TOKEN_FILE", "/dash-files/tfapi_auth_token.txt")
+CONTENT_TYPE = os.getenv("TFAPI_CONTENT_TYPE", "application/x-www-form-urlencoded")
 
-ip_addr = config[0]
-user = config[1]
-password = config[2]
-sample_prefix = config[3]
 
-#Read most recent file name prefixes
-#csv_reader = reader(open("dash-files/sample.prefixes","r"), quotechar="\"")
-#for row in csv_reader:
-#    list_files.append(row)
-def populate(ip):
-    lst = []
-    now = datetime.now()
-    then = now - timedelta(days=25) # get only files from the past 25 days - you will pickup duplicates, but SQL insertion will not happen twice for same sample.
+def read_config():
+    try:
+        with open(CONFIG_PATH) as f:
+            return f.read().splitlines()
+    except FileNotFoundError:
+        return []
 
-    headers = {
-    'password': password,
-    'username': user
+
+def read_auth_token():
+    token = os.getenv("TFAPI_AUTH_TOKEN") or os.getenv("THERMOFISHER_AUTH_TOKEN")
+    if token:
+        return token.strip()
+
+    try:
+        with open(TOKEN_PATH) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return ""
+
+
+def get_settings():
+    config = read_config()
+    ip_addr = os.getenv("TFAPI_IP_ADDR") or os.getenv("THERMOFISHER_IP_ADDR")
+    if not ip_addr and config:
+        ip_addr = config[0]
+    if ip_addr == "0.0.0.0":
+        ip_addr = ""
+
+    sample_prefix = os.getenv("TFAPI_SAMPLE_PREFIX")
+    if not sample_prefix and len(config) > 3:
+        sample_prefix = config[3]
+    sample_prefix = sample_prefix or "HD"
+
+    try:
+        lookback_days = int(os.getenv("TFAPI_LOOKBACK_DAYS", "2"))
+    except ValueError:
+        lookback_days = 2
+
+    return {
+        "ip_addr": ip_addr,
+        "sample_prefix": sample_prefix,
+        "lookback_days": lookback_days,
+        "auth_token": read_auth_token(),
     }
 
+
+def build_headers(auth_token):
+    return {
+        "Content-Type": CONTENT_TYPE,
+        "Authorization": auth_token,
+    }
+
+
+def get_analysis(ip_addr, auth_token, params):
+    response = requests.get(
+        f"https://{ip_addr}:443/api/v1/analysis",
+        headers=build_headers(auth_token),
+        params=params,
+        verify=False,
+        timeout=60,
+    )
+    response.raise_for_status()
+    response.encoding = "UTF-8"
+    return response.json()
+
+
+def populate(ip_addr, auth_token, sample_prefix, lookback_days):
+    now = datetime.now()
+    then = now - timedelta(days=lookback_days)
     params = (
-    ('signedOff', 'FALSE'),
-    ('end_date', now.date()),
-    ('start_date', then.date()))
+        ("format", "json"),
+        ("end_date", now.date()),
+        ("start_date", then.date()),
+        ("type", "analysis"),
+        ("view", "summary"),
+    )
 
-    response = requests.get('https://{0}:443/genexus/api/lims/v2/signedOffSamples'.format(ip), headers=headers, params=params, verify=False)
-    response.encoding = 'UTF-8'
-    data = response.json()
+    samples = []
+    for analysis in get_analysis(ip_addr, auth_token, params):
+        sample_data = analysis.get("samples", {})
+        for molecule in ("RNA", "DNA"):
+            sample_name = sample_data.get(molecule)
+            if sample_name and sample_name.startswith(sample_prefix):
+                samples.append(sample_name)
 
-    baseURL = None
-    for k in data['objects']:
-        if k['sample']['sample_name'].startswith(sample_prefix):
-            lst.append(k['sample']['sample_name'])
-    return(lst)
+    return samples
 
 
+def download_unfiltered_variants(ip_addr, auth_token, sample_name, lookback_days):
+    now = datetime.now()
+    then = now - timedelta(days=lookback_days)
+    params = (
+        ("format", "json"),
+        ("end_date", now.date()),
+        ("start_date", then.date()),
+        ("type", "analysis"),
+        ("name", sample_name),
+    )
 
-# datetime object containing current date and time
-now = datetime.now()
-then = now - timedelta(days=25)
-try:
-    for item in populate(ip_addr):
-        subprocess.call(["mkdir", "outfiles"])
-        out = "outfiles/{0}.zip".format(item)
-        outdir = "outfiles/{0}".format(item)
+    analyses = get_analysis(ip_addr, auth_token, params)
+    if not analyses:
+        return None
 
-        headers = {
-        'password':password,
-        'username':user
-        }
+    download_url = analyses[0].get("data_links", {}).get("unfiltered_variants")
+    if not download_url:
+        return None
 
-        params = (
-        ('signedOff','FALSE'),
-        ('end_date',now.date()),
-        ('start_date',then.date()))
+    output_path = f"outfiles/{sample_name}.zip"
+    response = requests.get(
+        download_url,
+        headers=build_headers(auth_token),
+        verify=False,
+        timeout=300,
+    )
+    response.raise_for_status()
+    with open(output_path, "wb") as f:
+        f.write(response.content)
 
-        response = requests.get('https://{0}:443/genexus/api/lims/v2/signedOffSamples'.format(ip_addr), headers=headers, params=params, verify=False)
+    return output_path
 
-        response.encoding = 'UTF-8'
-        data = response.json()
 
-        baseURL = None
-        for k in data['objects']:
-            if k['sample']['sample_name'] == item:
-                baseURL =k['sample']['base_url']
-        query1='https://{0}/genexus/api/lims/v2/download?file_list=*.vcf&path={1}'.format(ip_addr,baseURL)
-        subprocess.call(["curl", "-v", "-k", "--header", 'username:{0}'.format(user),'--header','password:{0}'.format(password), query1, "-o", out]) #send query
-        subprocess.call(["unzip", "-d", "outfiles", out]) #unzip
-        #newstr = item+"_GENEXUS1"
-        subprocess.call(["mv", "outfiles/*.vcf", "outfiles/{0}.vcf".format(item)]) #change the name from asterix.vcf to the correct sample name
-        vcf = "outfiles/{0}.vcf".format(item)
+def process_sample(ip_addr, auth_token, sample_name, lookback_days):
+    shutil.rmtree("outfiles", ignore_errors=True)
+    os.makedirs("outfiles", exist_ok=True)
 
-        fh = open("outfiles/{0}.vcf".format(item), "r")
-        lines = fh.readlines()
-        for i in range(len(lines)):
-            lines[i] = lines[i].rstrip()
-            if lines[i].startswith("##IonReporterAnalysisName="):
-                lines[i]= "##IonReporterAnalysisName={0}".format(item)
-            else:
-                continue
-        with open("outfiles/{0}.vcf".format(item), "w") as fh2:
-            for line in lines:
-                fh2.write(line+"\n")
+    zip_path = download_unfiltered_variants(ip_addr, auth_token, sample_name, lookback_days)
+    if not zip_path:
+        return
 
-        subprocess.call(["python3", "Add2VarDB.py", "-i", vcf]) #add to DB, can be changes if using DRAGEN to Add2VarDB_Ilmna.py
-        subprocess.call(["rm", "-rf", "outfiles"]) #remove any leftover files
-except:
-    pass
+    sample_dir = f"outfiles/{sample_name}"
+    subprocess.check_call(["unzip", "-q", "-d", "outfiles", zip_path])
+
+    all_zips = glob.glob("outfiles/*All.zip")
+    if not all_zips:
+        return
+
+    os.makedirs(sample_dir, exist_ok=True)
+    subprocess.check_call(["unzip", "-q", all_zips[0], "-d", sample_dir])
+
+    targets = glob.glob(f"./outfiles/{sample_name}/Variants/*/*Non-Filtered*.vcf")
+    if not targets:
+        return
+
+    vcf_path = f"outfiles/{sample_name}.vcf"
+    shutil.move(targets[0], vcf_path)
+    subprocess.check_call(["python3", "Add2VarDB.py", "-i", vcf_path])
+
+
+def main():
+    settings = get_settings()
+    if not settings["ip_addr"] or not settings["auth_token"]:
+        print(
+            "TFAPI_dwl.py skipped: missing TFAPI_IP_ADDR/THERMOFISHER_IP_ADDR "
+            "or TFAPI_AUTH_TOKEN/TFAPI_AUTH_TOKEN_FILE."
+        )
+        return
+
+    try:
+        samples = populate(
+            settings["ip_addr"],
+            settings["auth_token"],
+            settings["sample_prefix"],
+            settings["lookback_days"],
+        )
+        print(samples)
+        for sample_name in samples:
+            try:
+                process_sample(
+                    settings["ip_addr"],
+                    settings["auth_token"],
+                    sample_name,
+                    settings["lookback_days"],
+                )
+            except Exception as exc:
+                print(f"Failed to process {sample_name}: {exc}")
+            finally:
+                shutil.rmtree("outfiles", ignore_errors=True)
+    except Exception as exc:
+        print(f"TFAPI download failed: {exc}")
+
+
+if __name__ == "__main__":
+    main()
