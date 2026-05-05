@@ -13,7 +13,7 @@ import numpy as np
 import plotly.express as px
 import statistics as st
 import mysql.connector
-from sqlalchemy import create_engine
+from sqlalchemy import bindparam, create_engine, text
 import time
 from datetime import datetime
 import csv
@@ -111,7 +111,7 @@ def get_db_connection():
         host='db',
         user='usr',
         password='usrpass',
-        database='vardb',
+        database='OCA',
         port=3306
     )
 
@@ -208,74 +208,64 @@ def get_sample_data(sample_name):
 
 # Factorized functions for common operations
 def process_sample_data(data, sample_value, biomolecule_type, filter_failing=False):
-    """Common logic for processing sample data (DNA/RNA)"""
-    if not data or not sample_value:
+    """Build sample-specific rows while keeping QC statistics from cleared samples."""
+    if data is None or not sample_value:
         return []
     
-    # Convert JSON data to DataFrame
+    metric_col = 'afreq' if biomolecule_type == "DNA" else 'norm_count'
+
     if isinstance(data, str):
-        df = pd.read_json(data)
+        df = pd.read_json(StringIO(data))
     else:
         df = pd.DataFrame(data)
-    
-    # Use consistent column names from the data
-    column_mapping = {
-        'variant': 'variant',
-        'gene': 'gene', 
-        'samplename': 'samplename',
-        'afreq': 'afreq',
-        'norm_count': 'norm_count',
-        'coverage': 'coverage',
-        'sd': 'sd',
-        'upper_bound': 'upper_bound',
-        'lower_bound': 'lower_bound'
-    }
-    
-    # Filter by sample
+
+    summary_data = getSummary(data, biomolecule_type, selected_sample=sample_value)
+    if summary_data is None or summary_data.empty:
+        return []
+
     sample_data = df[df['samplename'] == sample_value].copy()
-    
-    # Filter by biomolecule type
     if biomolecule_type == "DNA":
         sample_data = sample_data[sample_data['variant'].str.startswith('chr', na=False)]
-    elif biomolecule_type == "RNA": 
+    else:
         sample_data = sample_data[~sample_data['variant'].str.startswith('chr', na=False)]
-    
+
+    sample_values = sample_data[['variant', metric_col]].copy()
+    sample_values[metric_col] = pd.to_numeric(sample_values[metric_col], errors='coerce').fillna(0)
+    sample_values = sample_values.groupby('variant', as_index=False)[metric_col].first()
+
+    result = summary_data.copy()
+    if metric_col in result.columns:
+        result = result.drop(columns=[metric_col])
+    result = result.merge(sample_values, on='variant', how='left')
+    result[metric_col] = result[metric_col].fillna(0)
+
+    numeric_cols = [metric_col, 'sd', 'upper_bound', 'lower_bound', 'coverage']
+    for col in numeric_cols:
+        if col in result.columns:
+            result[col] = pd.to_numeric(result[col], errors='coerce').fillna(0)
+
     if filter_failing:
-        # Apply QC failure logic - this would need pass_filter column
-        # For now, filter by zero afreq as proxy
-        sample_data = sample_data[sample_data['afreq'] == 0]
-    
-    # Prepare display data with all required columns
-    display_data = []
-    for _, row in sample_data.iterrows():
-        if biomolecule_type == "DNA":
-            display_data.append({
-                'variant': row.get('variant', ''),
-                'gene': row.get('gene', ''),
-                'afreq': f"{float(row.get('afreq', 0)):.3f}",
-                'sd': f"{float(row.get('sd', 0)):.3f}",
-                'upper_bound': f"{float(row.get('upper_bound', 0)):.3f}",
-                'lower_bound': f"{float(row.get('lower_bound', 0)):.3f}",
-                'coverage': f"{float(row.get('coverage', 0)):.0f}"
-            })
-        else:  # RNA
-            display_data.append({
-                'variant': row.get('variant', ''),
-                'gene': row.get('gene', ''),
-                'norm_count': f"{float(row.get('norm_count', 0)):.0f}",
-                'sd': f"{float(row.get('sd', 0)):.0f}",
-                'upper_bound': f"{float(row.get('upper_bound', 0)):.0f}",
-                'lower_bound': f"{float(row.get('lower_bound', 0)):.0f}",
-                'coverage': f"{float(row.get('coverage', 0)):.0f}"
-            })
-    
-    return display_data
+        result = result.loc[
+            (result[metric_col] < result['lower_bound']) |
+            (result[metric_col] > result['upper_bound'])
+        ]
+
+    result[metric_col] = result[metric_col].round(2 if biomolecule_type == "DNA" else 0)
+    result = result.sort_values('variant')
+    display_columns = [
+        'variant', 'gene', metric_col, 'sd', 'upper_bound', 'lower_bound',
+        'coverage', 'trname', 'HGVSc', 'HGVSp', 'samplename'
+    ]
+    display_columns = [col for col in display_columns if col in result.columns]
+    return result[display_columns].to_dict('records')
 
 # Pagination helper functions
 def paginate_data(data, page_current, page_size):
     """Paginate data for large tables"""
     if not data:
         return data, 0
+    page_current = page_current or 0
+    page_size = page_size or len(data)
     
     total_pages = max(1, (len(data) + page_size - 1) // page_size)
     start_idx = page_current * page_size
@@ -285,6 +275,8 @@ def paginate_data(data, page_current, page_size):
 
 def create_pagination_info(page_current, page_size, total_records):
     """Create pagination display information"""
+    page_current = page_current or 0
+    page_size = page_size or total_records or 1
     start_record = page_current * page_size + 1
     end_record = min((page_current + 1) * page_size, total_records)
     
@@ -299,7 +291,7 @@ def getSummaryOptimized(bioMolecule):
         return pd.DataFrame(cached_data)
     
     # Connect to database
-    mydb = mysql.connector.connect(host='db', database='vardb', user="usr", passwd='usrpass')
+    mydb = mysql.connector.connect(host='db', database='OCA', user="usr", passwd='usrpass', port=3306)
     
     # Load configuration
     cleared_samples = load_config_file('/dash-files/cleared.tsv')
@@ -360,7 +352,7 @@ def getLeveyJenningsDataOptimized(variant_name, biomolecule_type):
         return cached_data
     
     # Connect to database
-    mydb = mysql.connector.connect(host='db', database='vardb', user="usr", passwd='usrpass')
+    mydb = mysql.connector.connect(host='db', database='OCA', user="usr", passwd='usrpass', port = 3306)
     
     query = """
     SELECT 
@@ -422,19 +414,23 @@ def get_sql():
     
     try:
         # Use SQLAlchemy with PyMySQL for better compatibility
-        engine = create_engine("mysql+pymysql://usr:usrpass@db/vardb")
+        engine = create_engine("mysql+pymysql://usr:usrpass@db/OCA")
         print("Database connection established with SQLAlchemy + PyMySQL")
         
-        # Read exclusions
-        exclusions = []
         with open('/dash-files/exclusions.tsv') as f:
-            exclude = f.read().splitlines()
-            exclusions = exclude
+            exclusions = f.read().splitlines()
         print(f"Exclusions: {exclusions}")
+
+        with open('/dash-files/regions.txt') as f:
+            regions = f.read().splitlines()
+
+        if not regions:
+            print("No regions configured; returning empty dataset")
+            return pd.DataFrame(columns=['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename'])
         
-        # Optimized query with explicit JOINs and better performance
-        query = """
-        SELECT 
+        exclusion_clause = "\n            AND r.name NOT IN :exclusions" if exclusions else ""
+        query = text(f"""
+        SELECT
             c.pass_filter,
             c.afreq,
             c.coverage,
@@ -455,26 +451,20 @@ def get_sql():
         LEFT JOIN HGVS h ON h.id = v.hgvs
         LEFT JOIN Transcripts t ON t.id = h.transcript
         LEFT JOIN Genes g ON g.id = v.gene
+        WHERE c.pass_filter = :pass_filter
+            AND v.name IN :regions{exclusion_clause}
         ORDER BY r.filedate DESC, v.name
-        """
-        
-        df = pd.read_sql(query, engine)
+        """).bindparams(bindparam("regions", expanding=True))
+        params = {"pass_filter": "PASS", "regions": regions}
+        if exclusions:
+            query = query.bindparams(bindparam("exclusions", expanding=True))
+            params["exclusions"] = exclusions
+
+        df = pd.read_sql(query, engine, params=params)
         print(f"Query executed successfully, got {len(df)} rows")
         
         # read-in data and change duplicated column headers
         df.columns = ['pass_filter','afreq','coverage','norm_count','sample','variant','IonWF_version','samplename','filedate','trname','transcript','HGVSc', 'HGVSp','gene']
-        
-        # get only HD200 and seracare samples (exclude unwanted samples)
-        df = df[~df['samplename'].isin(exclusions)]
-        
-        # Get the variants of interest
-        regions = []
-        with open('/dash-files/regions.txt') as f:
-            region = f.read().splitlines()
-            regions = region
-        
-        # Filter by regions of interest
-        df = df[df['variant'].isin(regions)]
         
         # Replace fusion gene names with readable names
         df.replace(["chr1_154142876_C_C[chr1:156844363[_Fusion_None",
@@ -567,13 +557,41 @@ def get_sql():
         # Return empty DataFrame with correct columns to prevent crashes
         return pd.DataFrame(columns=['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename'])
 
-def getSummary(data, bioMolecule):
-    # Check cache first
-    cache_key = get_cache_key("summary", bioMolecule, str(hash(str(data))))
-    cached_data = cache_get(cache_key)
-    if cached_data:
-        return pd.DataFrame(cached_data)
-    
+def get_historical_cleared_samples(data, cleared_samples, selected_sample):
+    """Return cleared samples that chronologically precede the selected sample."""
+    if not selected_sample or 'filedate' not in data.columns:
+        return cleared_samples
+
+    sample_order = data[['samplename', 'filedate']].copy().reset_index()
+    sample_order = sample_order.dropna(subset=['samplename'])
+    sample_order['filedate_order'] = pd.to_numeric(sample_order['filedate'], errors='coerce')
+    sample_order = sample_order.groupby('samplename', as_index=False).agg({
+        'filedate_order': 'min',
+        'index': 'min'
+    })
+
+    selected_row = sample_order[sample_order['samplename'] == selected_sample]
+    if selected_row.empty:
+        return cleared_samples
+
+    selected_date = selected_row['filedate_order'].iloc[0]
+    selected_index = selected_row['index'].iloc[0]
+    if pd.isna(selected_date):
+        preceding = sample_order[sample_order['index'] < selected_index]
+    else:
+        preceding = sample_order[
+            (sample_order['filedate_order'] < selected_date) |
+            (
+                (sample_order['filedate_order'] == selected_date) &
+                (sample_order['index'] < selected_index)
+            )
+        ]
+
+    preceding_names = set(preceding['samplename'])
+    return [sample for sample in cleared_samples if sample in preceding_names]
+
+
+def getSummary(data, bioMolecule, selected_sample=None):
     cleared_samples = []
     with open('/dash-files/cleared.tsv') as f:
         include = f.read().splitlines()
@@ -582,6 +600,11 @@ def getSummary(data, bioMolecule):
     with open('/dash-files/config.txt') as f:
         vals = f.read().splitlines()
         limit = int(vals[4])
+
+    cache_key = get_cache_key("summary", bioMolecule, selected_sample or "all", tuple(cleared_samples), limit, get_data_hash(data))
+    cached_data = cache_get(cache_key)
+    if cached_data:
+        return pd.DataFrame(cached_data)
     
     # Helper function to get mode for strings (replacement for scipy.stats.mode)
     def get_mode(series):
@@ -592,16 +615,17 @@ def getSummary(data, bioMolecule):
         return mode_result.iloc[0] if len(mode_result) > 0 else series.iloc[0]
     
     if bioMolecule == "DNA":
-        neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
+        neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename','filedate']
         from io import StringIO
         t0 = pd.read_json(StringIO(data)) if isinstance(data, str) else pd.read_json(data)
         t0 = t0[neworder]
         t0 = t0.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
+        cleared_samples = get_historical_cleared_samples(t0, cleared_samples, selected_sample)
         summarizedData = t0[t0['samplename'].isin(cleared_samples)]
         
         if len(summarizedData) == 0:
             # Return empty DataFrame with correct structure
-            return pd.DataFrame(columns=neworder)
+            return pd.DataFrame(columns=['variant','gene','afreq','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename'])
         
         summarizedData['sd'] = summarizedData.groupby('variant').afreq.transform('std')
         summarizedData['upper_bound'] = summarizedData['afreq'] + limit*(summarizedData['sd'])
@@ -630,16 +654,17 @@ def getSummary(data, bioMolecule):
         return summarizedData
         
     if bioMolecule == "RNA":
-        neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
+        neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename','filedate']
         from io import StringIO
         t0 = pd.read_json(StringIO(data)) if isinstance(data, str) else pd.read_json(data)
         t0 = t0[neworder]
         t0 = t0.map(lambda x: round(x, 0) if isinstance(x, (int, float)) else x)
+        cleared_samples = get_historical_cleared_samples(t0, cleared_samples, selected_sample)
         summarizedData = t0[t0['samplename'].isin(cleared_samples)]
         
         if len(summarizedData) == 0:
             # Return empty DataFrame with correct structure
-            return pd.DataFrame(columns=neworder)
+            return pd.DataFrame(columns=['variant','gene','norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename'])
         
         summarizedData['sd'] = summarizedData.groupby('variant').norm_count.transform('std')
         summarizedData['upper_bound'] = summarizedData['norm_count'] + limit*(summarizedData['sd'])
@@ -685,7 +710,7 @@ except:
 
 #defining the layout (same as original)
 def serve_layout():
-    sig_tab = pd.DataFrame({'Field':["QC Blanks","Coverage > 800","Uniformity > 80%","Lot Number","PhD", "MD"],'Value':["PASS  /  FAIL","PASS  /  FAIL","PASS  /  FAIL","___________________________________________________" ,"___________________________________________________","___________________________________________________"]})
+    sig_tab = pd.DataFrame({'Field':["QC Blanks","Coverage > 800","Uniformity > 80%","Total Mapped Reads > 20,000","PhD1","PhD2", "MD"],'Value':["PASS  /  FAIL","PASS  /  FAIL","PASS  /  FAIL","___________________________________________________" ,"___________________________________________________" ,"___________________________________________________","___________________________________________________"]})
     return html.Div(children=[
     dcc.Store(id='memory-output'),
     html.H1(children="MGDB control monitoring"),
@@ -1008,31 +1033,39 @@ def update_graph(data, selected_rows, data2):
             mn1.append(i if i else mn1[-1])
         except:
             mn1.append(0.00000001)
-    mn2 = [st.mean(mn1[0:s]) for s in range(1,len(list(set(cleared_samples))))]
+    #Post-publishing minor changes in calculations to simplify with np.nan
+    #mn2 = [st.mean(mn1[0:s]) for s in range(1,len(list(set(cleared_samples))))]
+    indexes_list = [filt_dat['samplename'].tolist().index(x) for x in filt_dat['samplename'].tolist() if x not in list(set(cleared_samples))]
+    for idx in range(0,len(mn1)):
+        if idx in indexes_list:
+            mn1[idx] = np.nan
+        else:
+            continue
+    mn2 = [np.nanmean(mn1[0:s]) for s in range(1,len(mn1))]
     mn2.insert(0, mn[0])
-    diff = len(mn)-len(cleared_samples)
-    if diff > 0:
-        ex = [mn2[-1]] * diff
-        mn2.extend(ex)
+    #diff = len(mn)-len(cleared_samples)
+    #if diff > 0:
+    #    ex = [mn2[-1]] * diff
+    #    mn2.extend(ex)
     mn3 = [num for num in mn if num]
-    sd1 = [np.std(mn1[0:s], ddof=1) for s in range(1,len(list(set(cleared_samples))))]
+    sd1 = [np.nanstd(mn1[0:s], ddof=1) for s in range(1,len(mn2))]
     sd1.insert(0, 0)
     sd1 = np.array(sd1)
     sd1[np.isnan(sd1)] = 0
     sd1 = sd1.tolist()
-    diff2 = len(mn1)-len(cleared_samples)
-    if diff2 > 0:
-        ex2 = [sd1[-1]] * diff2
-        sd1.extend(ex2)
+    #diff2 = len(mn1)-len(cleared_samples)
+    #if diff2 > 0:
+    #    ex2 = [sd1[-1]] * diff2
+    #    sd1.extend(ex2)
     sd2 = sd1
     sdpos1 = np.array(mn2) + np.array(sd2)
     sdneg1 = np.array(mn2) - np.array(sd2)
     sdpos2 = np.array(mn2) + limit*(np.array(sd2))
     sdneg2 = np.array(mn2) - limit*(np.array(sd2))
     sdpos1[sdpos1 > 100] = 100
-    sdneg1[sdneg1 < 0] = 0
+    sdneg1[sdneg1 < 0.00] = 0
     sdpos2[sdpos2 > 100] = 100
-    sdneg2[sdneg2 < 0] = 0
+    sdneg2[sdneg2 < 0.00] = 0
     figure = go.Figure(data = go.Scatter(x = sset[-20:]['samplename'], y = mn[-20:], mode='lines+markers', name = 'Value'))
     figure.add_trace(go.Scatter(x = sset[-20:]['samplename'], y = sdpos1[-20:], mode = 'lines', line_color="green", name = '+1SD'))
     figure.add_trace(go.Scatter(x = sset[-20:]['samplename'], y = sdneg1[-20:], mode = 'lines', line_color="green", name = '-1SD'))
@@ -1097,22 +1130,29 @@ def update_graph2(data, selected_rows, data2):
             mn1.append(i if i else mn1[-1])
         except:
             mn1.append(0.00000001)
-    mn2 = [st.mean(mn1[0:s]) for s in range(1,len(list(set(cleared_samples))))]
+    indexes_list = [filt_dat['samplename'].tolist().index(x) for x in filt_dat['samplename'].tolist() if x not in list(set(cleared_samples))]
+    for idx in range(0,len(mn1)):
+        if idx in indexes_list:
+            mn1[idx] = np.nan
+        else:
+            continue
+    mn2 = [np.nanmean(mn1[0:s]) for s in range(1,len(mn1))]
     mn2.insert(0, mn[0])
-    diff = len(mn)-len(cleared_samples)
-    if diff > 0:
-        ex = [mn2[-1]] * diff
-        mn2.extend(ex)
+    #diff = len(mn)-len(cleared_samples)
+    #if diff > 0:
+    #    ex = [mn2[-1]] * diff
+    #    mn2.extend(ex)
     mn3 = [num for num in mn if num]
-    sd1 = [np.std(mn1[0:s], ddof=1) for s in range(1,len(list(set(cleared_samples))))]
-    diff2 = len(mn1)-len(cleared_samples)
+    sd1 = [np.nanstd(mn1[0:s], ddof=1) for s in range(1,len(mn2))]
+    #sd1 = [np.std(mn1[0:s], ddof=1) for s in range(1,len(list(set(cleared_samples))))]
+    #diff2 = len(mn1)-len(cleared_samples)
     sd1.insert(0, 0)
     sd1 = np.array(sd1)
     sd1[np.isnan(sd1)] = 0
     sd1 = sd1.tolist()
-    if diff2 > 0:
-        ex2 = [sd1[-1]] * diff2
-        sd1.extend(ex2)
+    #if diff2 > 0:
+    #    ex2 = [sd1[-1]] * diff2
+    #    sd1.extend(ex2)
     sdpos1 = np.array(mn2) + np.array(sd1)
     sdneg1 = np.array(mn2) - np.array(sd1)
     sdpos2 = np.array(mn2) + limit*(np.array(sd1))
@@ -1178,63 +1218,14 @@ def update_table3_optimized(sel_value, data, page_current, page_size):
     Input('drpdown','value'),
     Input('memory-output', 'data'))
 def update_fail1(sel_value, data):
-    if data is None:
-        return []
-    from io import StringIO
-    neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
-    t0 = pd.read_json(StringIO(data)) if isinstance(data, str) else pd.read_json(data)
-    t0 = t0.copy()
-    t0 = t0[neworder]
-    t0 = t0.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
-    filt_dat = t0[t0['variant'].str.startswith('chr')]
-    t1 = getSummary(data, "DNA")
-    
-    if len(t1) == 0:
-        return []
-    
-    filt_dat = filt_dat.map(lambda x: round(x, 2) if isinstance(x, (int, float)) else x)
-    filt_dat = filt_dat[filt_dat['samplename'] == sel_value].copy()
-    missing = list(set(t1['variant'].tolist()) - set(filt_dat['variant'].tolist()))
-    if missing:
-        for var in missing:
-            new_row = pd.DataFrame({'variant':[var],'gene':[''],'afreq':[0],'norm_count':[0],'sd':[0],'upper_bound':[0],'lower_bound':[0],'coverage':[0],'trname':[''],'HGVSc':[''],'HGVSp':[''],'samplename':[sel_value]})
-            filt_dat = pd.concat([filt_dat, new_row], ignore_index=True)
-    filt_dat = filt_dat.sort_values('variant')
-    filt_dat['sd']= t1['sd'].tolist()
-    filt_dat['upper_bound'] = t1['upper_bound'].tolist()
-    filt_dat.loc[filt_dat['upper_bound'] > 100.00, 'upper_bound'] = 100.00
-    filt_dat['lower_bound'] = t1['lower_bound'].tolist()
-    filt_dat['lower_bound'].values[filt_dat['lower_bound'].values < 0.00] = 0.00
-    filt_dat = filt_dat.loc[(filt_dat['afreq']<filt_dat['lower_bound'])|(filt_dat['afreq']>filt_dat['upper_bound'])]
-    return filt_dat.to_dict('records')
+    return process_sample_data(data, sel_value, "DNA", filter_failing=True)
 
 @app.callback(
     Output('table-fail2','data'),
     Input('drpdown','value'),
     Input('memory-output', 'data'))
 def update_fail2(sel_value, data):
-    if data is None:
-        return []
-    from io import StringIO
-    neworder = ['variant','gene','afreq', 'norm_count','sd', 'upper_bound', 'lower_bound','coverage','trname','HGVSc','HGVSp','samplename']
-    t0 = pd.read_json(StringIO(data)) if isinstance(data, str) else pd.read_json(data)
-    t0 = t0[neworder]
-    t0 = t0.map(lambda x: round(x, 0) if isinstance(x, (int, float)) else x)
-    filt_dat = t0[~t0['variant'].str.startswith('chr')]
-    t2 = getSummary(data, "RNA")
-    
-    if len(t2) == 0:
-        return []
-    
-    filt_dat = filt_dat.map(lambda x: round(x, 0) if isinstance(x, (int, float)) else x)
-    filt_dat = filt_dat[filt_dat['samplename'] == sel_value].copy()
-    filt_dat = filt_dat.sort_values('variant')
-    filt_dat['sd']= t2['sd'].tolist()
-    filt_dat['upper_bound'] = t2['upper_bound'].tolist()
-    filt_dat['lower_bound'] = t2['lower_bound'].tolist()
-    filt_dat['lower_bound'].values[filt_dat['lower_bound'].values < 0] = 0
-    filt_dat = filt_dat.loc[(filt_dat['norm_count']<filt_dat['lower_bound'])|(filt_dat['norm_count']>filt_dat['upper_bound'])]
-    return filt_dat.to_dict('records')
+    return process_sample_data(data, sel_value, "RNA", filter_failing=True)
 
 @app.callback(
     Output('output-container-button2', 'children'),
@@ -1294,4 +1285,4 @@ def clear(n_clicks, drpdown):
     return None
 
 if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0', port=8090)
+    app.run(debug=False, host='0.0.0.0', port=8091)
